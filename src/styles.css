@@ -1,0 +1,73 @@
+@import "tailwindcss" source("../");
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: #09090b;
+  color: #fafafa;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+@keyframes msg-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.msg-enter { animation: msg-enter 0.2s ease-out; }
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+.typing-dot { animation: typing-bounce 1s ease-in-out infinite; }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.action-bar, .emoji-picker, .context-menu { animation: fade-in 0.12s ease-out; }
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.reply-preview, .typing-indicator { animation: slide-up 0.15s ease-out; }
+
+.reaction-btn { transition: all 0.15s ease; }
+.reaction-btn:active { transform: scale(1.2); }
+
+@keyframes badge-in {
+  from { opacity: 0; transform: scale(0); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes onboard-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.mention-highlight {
+  color: #60a5fa;
+  font-weight: 500;
+  cursor: pointer;
+}
+.mention-highlight:hover {
+  text-decoration: underline;
+}
