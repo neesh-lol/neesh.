@@ -307,9 +307,30 @@ function PremiumChatPage() {
     alert(nowMuted ? 'User muted' : 'User unmuted')
   }
 
-  const handleBlock = async () => {
-    alert('Blocking is being rebuilt for Supabase.')
+const handleBlock = async (userId: string) => {
+  if (!user) return
+
+  if (userId === user.id) {
+    alert('You cannot block yourself.')
+    return
   }
+
+  const { error } = await supabase
+    .from('user_blocks')
+    .upsert({
+      blocker_id: user.id,
+      blocked_id: userId,
+    })
+
+  if (error) {
+    console.error('Block user error:', error)
+    alert('Failed to block user.')
+    return
+  }
+
+  alert('User blocked successfully.')
+  window.location.reload()
+}
 
   const handleDelete = async (msg: ChatMessageData) => {
     if (!user) return
