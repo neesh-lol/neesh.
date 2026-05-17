@@ -55,9 +55,25 @@ function DefaultAvatar({ size = 40 }: { size?: number }) {
   )
 }
 
+function mapUserResult(p: any): UserResult {
+  return {
+    id: p.id,
+    displayName: p.display_name ?? 'User',
+    username: p.username ?? null,
+    bio: p.bio ?? '',
+    avatarUrl: p.avatar_url ?? '',
+    interests: p.interests ?? [],
+    score: 0,
+    totalXp: p.total_xp ?? 0,
+    isPremium: p.is_premium ?? false,
+    isFounderOverride: p.is_founder_override ?? false,
+  }
+}
+
 function FriendsPage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
+
   const [tab, setTab] = useState<'friends' | 'pending' | 'search'>('friends')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<UserResult[]>([])
@@ -78,19 +94,74 @@ function FriendsPage() {
   }, [ready, user, navigate])
 
   const loadFriends = useCallback(async () => {
+    if (!user) return
+
     setLoading(true)
 
-    try {
-      const res = await fetch('/api/friends')
-      if (res.ok) {
-        setFriendsData(await res.json())
-      }
-    } catch (error) {
+    const { data: rows, error } = await supabase
+      .from('friendships')
+      .select('*')
+      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
+
+    if (error) {
       console.error('Friends load error:', error)
+      setLoading(false)
+      return
     }
 
+    const friendships = rows ?? []
+
+    const profileIds = Array.from(
+      new Set(
+        friendships.flatMap((f: any) => [f.requester_id, f.receiver_id]).filter((id: string) => id !== user.id)
+      )
+    )
+
+    if (profileIds.length === 0) {
+      setFriendsData({ friends: [], pendingReceived: [], pendingSent: [] })
+      setLoading(false)
+      return
+    }
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('*')
+      .in('id', profileIds)
+
+    if (profilesError) {
+      console.error('Friend profile load error:', profilesError)
+      setLoading(false)
+      return
+    }
+
+    const profileMap = new Map<string, any>()
+    for (const p of profiles ?? []) {
+      profileMap.set(p.id, p)
+    }
+
+    const friends: UserResult[] = []
+    const pendingReceived: UserResult[] = []
+    const pendingSent: UserResult[] = []
+
+    for (const f of friendships) {
+      const otherId = f.requester_id === user.id ? f.receiver_id : f.requester_id
+      const other = profileMap.get(otherId)
+      if (!other) continue
+
+      if (f.status === 'accepted') {
+        friends.push(mapUserResult(other))
+      } else if (f.status === 'pending') {
+        if (f.receiver_id === user.id) {
+          pendingReceived.push(mapUserResult(other))
+        } else {
+          pendingSent.push(mapUserResult(other))
+        }
+      }
+    }
+
+    setFriendsData({ friends, pendingReceived, pendingSent })
     setLoading(false)
-  }, [])
+  }, [user])
 
   useEffect(() => {
     if (user) loadFriends()
@@ -135,20 +206,7 @@ function FriendsPage() {
       return
     }
 
-    const mapped: UserResult[] = (data ?? []).map((p: any) => ({
-      id: p.id,
-      displayName: p.display_name ?? 'User',
-      username: p.username ?? null,
-      bio: p.bio ?? '',
-      avatarUrl: p.avatar_url ?? '',
-      interests: p.interests ?? [],
-      score: 0,
-      totalXp: p.total_xp ?? 0,
-      isPremium: p.is_premium ?? false,
-      isFounderOverride: p.is_founder_override ?? false,
-    }))
-
-    setResults(mapped)
+    setResults((data ?? []).map(mapUserResult))
     setSearching(false)
   }
 
@@ -189,6 +247,27 @@ function FriendsPage() {
       .maybeSingle()
 
     setIsFollowing(!!data)
+  }
+
+  const getFriendshipStatus = async (profileId: string) => {
+    if (!user) return { status: null as string | null, direction: null as string | null }
+
+    const { data } = await supabase
+      .from('friendships')
+      .select('*')
+      .or(
+        `and(requester_id.eq.${user.id},receiver_id.eq.${profileId}),and(requester_id.eq.${profileId},receiver_id.eq.${user.id})`
+      )
+      .maybeSingle()
+
+    if (!data) return { status: null, direction: null }
+
+    const direction = data.requester_id === user.id ? 'sent' : 'received'
+
+    return {
+      status: data.status as string,
+      direction,
+    }
   }
 
   const viewProfile = async (username: string) => {
@@ -237,6 +316,8 @@ function FriendsPage() {
       profileViews = count ?? 0
     }
 
+    const friendship = await getFriendshipStatus(p.id)
+
     const mappedProfile: FriendProfile = {
       id: p.id,
       netlifyId: p.id,
@@ -250,8 +331,8 @@ function FriendsPage() {
       messageCount: p.message_count ?? 0,
       currentStreak: p.current_streak ?? 0,
       longestStreak: p.longest_streak ?? 0,
-      friendshipStatus: null,
-      friendshipDirection: null,
+      friendshipStatus: friendship.status,
+      friendshipDirection: friendship.direction,
       isSelf: p.id === user.id,
       isPremium: p.is_premium ?? false,
       isFounderOverride: p.is_founder_override ?? false,
@@ -273,14 +354,71 @@ function FriendsPage() {
   }
 
   const friendAction = async (action: string, username: string) => {
+    if (!user) return
+
     setActionLoading(true)
 
     try {
-      await fetch('/api/friends', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, username }),
-      })
+      const { data: targetProfile, error: targetError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('username', username)
+        .maybeSingle()
+
+      if (targetError || !targetProfile) {
+        console.error('Friend target lookup error:', targetError)
+        alert('Could not find user.')
+        setActionLoading(false)
+        return
+      }
+
+      const targetId = targetProfile.id
+
+      if (action === 'add') {
+        const { error } = await supabase
+          .from('friendships')
+          .upsert({
+            requester_id: user.id,
+            receiver_id: targetId,
+            status: 'pending',
+            updated_at: new Date().toISOString(),
+          })
+
+        if (error) {
+          console.error('Add friend error:', error)
+          alert('Could not send friend request.')
+        }
+      }
+
+      if (action === 'accept') {
+        const { error } = await supabase
+          .from('friendships')
+          .update({
+            status: 'accepted',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('requester_id', targetId)
+          .eq('receiver_id', user.id)
+
+        if (error) {
+          console.error('Accept friend error:', error)
+          alert('Could not accept friend request.')
+        }
+      }
+
+      if (action === 'remove') {
+        const { error } = await supabase
+          .from('friendships')
+          .delete()
+          .or(
+            `and(requester_id.eq.${user.id},receiver_id.eq.${targetId}),and(requester_id.eq.${targetId},receiver_id.eq.${user.id})`
+          )
+
+        if (error) {
+          console.error('Remove friend error:', error)
+          alert('Could not remove friend.')
+        }
+      }
 
       if (viewingProfile?.username === username) {
         await viewProfile(username)
@@ -323,6 +461,47 @@ function FriendsPage() {
         followers: c.followers + 1,
       }))
     }
+  }
+
+  const grantPremium = async (profileId: string) => {
+    setAdminLoading(true)
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_premium: true })
+      .eq('id', profileId)
+
+    if (error) {
+      console.error('Grant premium error:', error)
+      setAdminMsg('Failed to grant NEESH.+')
+    } else {
+      setAdminMsg('NEESH.+ granted')
+      setViewingProfile((p) => p ? { ...p, isPremium: true } : p)
+    }
+
+    setAdminLoading(false)
+  }
+
+  const revokePremium = async (profileId: string) => {
+    setAdminLoading(true)
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        is_premium: false,
+        is_founder_override: false,
+      })
+      .eq('id', profileId)
+
+    if (error) {
+      console.error('Revoke premium error:', error)
+      setAdminMsg('Failed to revoke NEESH.+')
+    } else {
+      setAdminMsg('NEESH.+ revoked')
+      setViewingProfile((p) => p ? { ...p, isPremium: false, isFounderOverride: false } : p)
+    }
+
+    setAdminLoading(false)
   }
 
   if (!ready || !user) {
@@ -541,6 +720,7 @@ function FriendsPage() {
                 <Shield size={14} className="text-zinc-400" />
                 <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Owner Controls</span>
               </div>
+
               <div className="p-4 space-y-3">
                 {adminMsg && (
                   <p className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">{adminMsg}</p>
@@ -580,33 +760,28 @@ function FriendsPage() {
 
                   {p.isPremium || p.isFounderOverride ? (
                     <button
-                      disabled={adminLoading}
+                      disabled={adminLoading || p.username === FOUNDER_USERNAME}
                       onClick={async () => {
-                        if (!confirm(`Remove NEESH.+ from ${p.displayName}?`)) return
-                        setAdminLoading(true)
-                        await supabase
-                          .from('profiles')
-                          .update({ is_premium: false, is_founder_override: false })
-                          .eq('id', p.netlifyId)
-                        setAdminMsg('NEESH.+ removed')
-                        setAdminLoading(false)
+                        if (p.username === FOUNDER_USERNAME) {
+                          setAdminMsg('Founder NEESH.+ cannot be revoked')
+                          return
+                        }
+
+                        if (!confirm(`Revoke NEESH.+ from ${p.displayName}?`)) return
+                        if (!p.netlifyId) return
+                        await revokePremium(p.netlifyId)
                       }}
                       className="flex items-center gap-2 px-3 py-2 bg-zinc-800 border border-zinc-700 text-zinc-400 rounded-lg text-xs font-medium hover:bg-zinc-700 transition-colors disabled:opacity-50"
                     >
-                      <XCircle size={13} /> Remove NEESH.+
+                      <XCircle size={13} /> Revoke NEESH.+
                     </button>
                   ) : (
                     <button
                       disabled={adminLoading}
                       onClick={async () => {
                         if (!confirm(`Grant NEESH.+ to ${p.displayName}?`)) return
-                        setAdminLoading(true)
-                        await supabase
-                          .from('profiles')
-                          .update({ is_premium: true })
-                          .eq('id', p.netlifyId)
-                        setAdminMsg('NEESH.+ granted')
-                        setAdminLoading(false)
+                        if (!p.netlifyId) return
+                        await grantPremium(p.netlifyId)
                       }}
                       className="flex items-center gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 rounded-lg text-xs font-medium hover:bg-yellow-500/20 transition-colors disabled:opacity-50"
                     >
@@ -644,6 +819,7 @@ function FriendsPage() {
           >
             My Friends
           </button>
+
           <button
             onClick={() => setTab('pending')}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${tab === 'pending' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
@@ -655,6 +831,7 @@ function FriendsPage() {
               </span>
             )}
           </button>
+
           <button
             onClick={() => setTab('search')}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === 'search' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
@@ -698,6 +875,7 @@ function FriendsPage() {
                 ) : (
                   <DefaultAvatar />
                 )}
+
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
                     {u.displayName}
@@ -722,6 +900,7 @@ function FriendsPage() {
               {friendsData.friends.length > 0 && (
                 <div>
                   <p className="text-xs font-medium text-zinc-400 mb-2">Friends ({friendsData.friends.length})</p>
+
                   <div className="space-y-2">
                     {friendsData.friends.map((u) => (
                       <button
@@ -734,10 +913,11 @@ function FriendsPage() {
                         ) : (
                           <DefaultAvatar />
                         )}
+
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
                             {u.displayName}
-                            {u.username === FOUNDER_USERNAME && <VerifiedBadge username={u.username} size={14} />}
+                            <VerifiedBadge username={u.username} isPremium={u.isPremium} isFounderOverride={u.isFounderOverride} size={14} />
                           </p>
                           {u.username && <p className="text-xs text-zinc-500">@{u.username}</p>}
                         </div>
@@ -774,6 +954,7 @@ function FriendsPage() {
               {friendsData.pendingReceived.length > 0 && (
                 <div>
                   <p className="text-xs font-medium text-zinc-400 mb-2">Received ({friendsData.pendingReceived.length})</p>
+
                   <div className="space-y-2">
                     {friendsData.pendingReceived.map((u) => (
                       <div key={u.id} className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
@@ -786,14 +967,16 @@ function FriendsPage() {
                           ) : (
                             <DefaultAvatar />
                           )}
+
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
                               {u.displayName}
-                              {u.username === FOUNDER_USERNAME && <VerifiedBadge username={u.username} size={14} />}
+                              <VerifiedBadge username={u.username} isPremium={u.isPremium} isFounderOverride={u.isFounderOverride} size={14} />
                             </p>
                             {u.username && <p className="text-xs text-zinc-500">@{u.username}</p>}
                           </div>
                         </button>
+
                         <div className="flex gap-2 shrink-0">
                           <button
                             onClick={() => friendAction('accept', u.username!)}
@@ -803,6 +986,7 @@ function FriendsPage() {
                           >
                             <UserCheck size={14} />
                           </button>
+
                           <button
                             onClick={() => friendAction('remove', u.username!)}
                             disabled={actionLoading}
@@ -821,6 +1005,7 @@ function FriendsPage() {
               {friendsData.pendingSent.length > 0 && (
                 <div>
                   <p className="text-xs font-medium text-zinc-400 mb-2">Sent ({friendsData.pendingSent.length})</p>
+
                   <div className="space-y-2">
                     {friendsData.pendingSent.map((u) => (
                       <div key={u.id} className="flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
@@ -833,14 +1018,16 @@ function FriendsPage() {
                           ) : (
                             <DefaultAvatar />
                           )}
+
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
                               {u.displayName}
-                              {u.username === FOUNDER_USERNAME && <VerifiedBadge username={u.username} size={14} />}
+                              <VerifiedBadge username={u.username} isPremium={u.isPremium} isFounderOverride={u.isFounderOverride} size={14} />
                             </p>
                             {u.username && <p className="text-xs text-zinc-500">@{u.username}</p>}
                           </div>
                         </button>
+
                         <span className="text-xs text-zinc-600 shrink-0 flex items-center gap-1">
                           <Clock size={12} /> Pending
                         </span>
