@@ -57,6 +57,7 @@ function CommunityPage() {
   const [popup, setPopup] = useState<{ userId: string; displayName: string; avatarUrl?: string; x: number; y: number } | null>(null)
   const [isOwner, setIsOwner] = useState(false)
   const [myProfile, setMyProfile] = useState<any>(null)
+  const [profileMap, setProfileMap] = useState<Record<string, any>>({})
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -68,6 +69,33 @@ function CommunityPage() {
   useEffect(() => {
     setMutedUsers(getMutedUsers())
   }, [])
+
+  const loadSenderProfiles = async (messageRows: DbMessage[]) => {
+    const userIds = Array.from(new Set(messageRows.map((m) => m.user_id)))
+
+    if (userIds.length === 0) return
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, is_premium, is_founder_override')
+      .in('id', userIds)
+
+    if (error) {
+      console.error('Sender profile load error:', error)
+      return
+    }
+
+    const mapped: Record<string, any> = {}
+
+    for (const profile of data ?? []) {
+      mapped[profile.id] = profile
+    }
+
+    setProfileMap((prev) => ({
+      ...prev,
+      ...mapped,
+    }))
+  }
 
   const loadReactions = async () => {
     const { data, error } = await supabase
@@ -134,7 +162,9 @@ function CommunityPage() {
         return
       }
 
-      setMessages((data ?? []).map(toChatMessage))
+      const rows = data ?? []
+      setMessages(rows.map(toChatMessage))
+      await loadSenderProfiles(rows)
       await loadReactions()
     }
 
@@ -151,7 +181,11 @@ function CommunityPage() {
         },
         (payload) => {
           setMessages((prev) => {
-            const msg = toChatMessage(payload.new as DbMessage)
+            const row = payload.new as DbMessage
+            const msg = toChatMessage(row)
+
+            loadSenderProfiles([row])
+
             if (prev.some((m) => String(m.id) === String(msg.id))) return prev
             return [...prev, msg]
           })
@@ -235,6 +269,8 @@ function CommunityPage() {
     } else if (data) {
       const msg = toChatMessage(data as DbMessage)
 
+      await loadSenderProfiles([data as DbMessage])
+
       setMessages((prev) => {
         if (prev.some((m) => String(m.id) === String(msg.id))) return prev
         return [...prev, msg]
@@ -281,31 +317,31 @@ function CommunityPage() {
     await loadReactions()
   }
 
- const handleReport = async (msg: ChatMessageData) => {
-  if (!user) return
+  const handleReport = async (msg: ChatMessageData) => {
+    if (!user) return
 
-  const reason = prompt('Why are you reporting this message?')
-  if (reason === null) return
+    const reason = prompt('Why are you reporting this message?')
+    if (reason === null) return
 
-  const { error } = await supabase
-    .from('message_reports')
-    .insert({
-      reporter_id: user.id,
-      reported_user_id: msg.userId,
-      message_type: 'community',
-      message_id: String(msg.id),
-      reason: reason.trim() || 'No reason provided',
-      message_content: msg.content,
-    })
+    const { error } = await supabase
+      .from('message_reports')
+      .insert({
+        reporter_id: user.id,
+        reported_user_id: msg.userId,
+        message_type: 'community',
+        message_id: String(msg.id),
+        reason: reason.trim() || 'No reason provided',
+        message_content: msg.content,
+      })
 
-  if (error) {
-    console.error('Report message error:', error)
-    alert('Failed to submit report.')
-    return
+    if (error) {
+      console.error('Report message error:', error)
+      alert('Failed to submit report.')
+      return
+    }
+
+    alert('Report submitted. Thank you.')
   }
-
-  alert('Report submitted. Thank you.')
-}
 
   const handleMute = (userId: string) => {
     const nowMuted = toggleMuteUser(userId)
@@ -314,29 +350,29 @@ function CommunityPage() {
   }
 
   const handleBlock = async (userId: string) => {
-  if (!user) return
+    if (!user) return
 
-  if (userId === user.id) {
-    alert('You cannot block yourself.')
-    return
+    if (userId === user.id) {
+      alert('You cannot block yourself.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('user_blocks')
+      .upsert({
+        blocker_id: user.id,
+        blocked_id: userId,
+      })
+
+    if (error) {
+      console.error('Block user error:', error)
+      alert('Failed to block user.')
+      return
+    }
+
+    alert('User blocked successfully.')
+    window.location.reload()
   }
-
-  const { error } = await supabase
-    .from('user_blocks')
-    .upsert({
-      blocker_id: user.id,
-      blocked_id: userId,
-    })
-
-  if (error) {
-    console.error('Block user error:', error)
-    alert('Failed to block user.')
-    return
-  }
-
-  alert('User blocked successfully.')
-  window.location.reload()
-}
 
   const handleDelete = async (msg: ChatMessageData) => {
     if (!user) return
@@ -378,6 +414,7 @@ function CommunityPage() {
           const prev = visibleMessages[i - 1]
           const grouped = prev?.userId === msg.userId && !msg.replyToId
           const replyTarget = msg.replyToId ? messages.find((m) => String(m.id) === String(msg.replyToId)) ?? null : null
+          const senderProfile = profileMap[msg.userId]
 
           return (
             <ChatMessage
@@ -389,17 +426,32 @@ function CommunityPage() {
               reactions={reactions[String(msg.id)] ?? []}
               replyTarget={replyTarget}
               isMuted={mutedUsers.has(msg.userId)}
-              isFounder={myProfile?.username === 'ceo' && msg.userId === user.id}
-              isPremiumUser={myProfile?.is_premium === true || myProfile?.is_founder_override === true}
+              isFounder={senderProfile?.username === 'ceo' || senderProfile?.is_founder_override === true}
+              isPremiumUser={senderProfile?.is_premium === true || senderProfile?.is_founder_override === true}
               onAvatarClick={(e, m) => {
                 const rect = e.currentTarget.getBoundingClientRect()
-                setPopup({ userId: m.userId, displayName: m.displayName, avatarUrl: m.avatarUrl || undefined, x: rect.right + 8, y: rect.top })
+                setPopup({
+                  userId: m.userId,
+                  displayName: m.displayName,
+                  avatarUrl: m.avatarUrl || undefined,
+                  x: rect.right + 8,
+                  y: rect.top,
+                })
               }}
               onNameClick={(e, m) => {
                 const rect = e.currentTarget.getBoundingClientRect()
-                setPopup({ userId: m.userId, displayName: m.displayName, avatarUrl: m.avatarUrl || undefined, x: rect.left, y: rect.bottom + 4 })
+                setPopup({
+                  userId: m.userId,
+                  displayName: m.displayName,
+                  avatarUrl: m.avatarUrl || undefined,
+                  x: rect.left,
+                  y: rect.bottom + 4,
+                })
               }}
-              onReply={(m) => { setReplyTo(m); inputRef.current?.focus() }}
+              onReply={(m) => {
+                setReplyTo(m)
+                inputRef.current?.focus()
+              }}
               onReact={handleReact}
               onReport={handleReport}
               onMute={handleMute}
