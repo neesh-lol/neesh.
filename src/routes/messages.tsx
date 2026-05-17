@@ -94,9 +94,11 @@ function MessagesPage() {
   const [showNewMessage, setShowNewMessage] = useState(false)
   const [friends, setFriends] = useState<FriendEntry[]>([])
   const [friendSearch, setFriendSearch] = useState('')
+  const [typingName, setTypingName] = useState('')
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (ready && !user) navigate({ to: '/signin' })
@@ -235,6 +237,32 @@ function MessagesPage() {
     await loadConversations()
   }
 
+  const sendTypingSignal = async () => {
+    if (!user || !activePartner) return
+
+    await supabase
+      .from('dm_typing')
+      .upsert({
+        typer_id: user.id,
+        receiver_id: activePartner.partnerId,
+        updated_at: new Date().toISOString(),
+      })
+  }
+
+  const handleInputChange = (value: string) => {
+    setInput(value)
+
+    if (!value.trim()) return
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current)
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      sendTypingSignal()
+    }, 150)
+  }
+
   useEffect(() => {
     if (!user) return
     loadFounder()
@@ -242,12 +270,10 @@ function MessagesPage() {
   }, [user, loadFounder, loadConversations])
 
   useEffect(() => {
-    if (!activePartner || !user) return
+    if (!user) return
 
-    loadMessages(activePartner.partnerId)
-
-    const channel = supabase
-      .channel(`direct_messages_${user.id}_${activePartner.partnerId}`)
+    const dmChannel = supabase
+      .channel(`direct_messages_global_${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -259,11 +285,20 @@ function MessagesPage() {
           const row = payload.new ?? payload.old
           if (!row) return
 
-          const isThisConversation =
-            (row.sender_id === user.id && row.receiver_id === activePartner.partnerId) ||
-            (row.sender_id === activePartner.partnerId && row.receiver_id === user.id)
+          const belongsToMe =
+            row.sender_id === user.id ||
+            row.receiver_id === user.id
 
-          if (isThisConversation) {
+          if (!belongsToMe) return
+
+          const isActiveConversation =
+            activePartner &&
+            (
+              (row.sender_id === user.id && row.receiver_id === activePartner.partnerId) ||
+              (row.sender_id === activePartner.partnerId && row.receiver_id === user.id)
+            )
+
+          if (isActiveConversation && activePartner) {
             loadMessages(activePartner.partnerId)
           } else {
             loadConversations()
@@ -273,17 +308,58 @@ function MessagesPage() {
       .subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(dmChannel)
     }
-  }, [activePartner, user])
+  }, [user, activePartner])
+
+  useEffect(() => {
+    if (!user || !activePartner) return
+
+    const typingChannel = supabase
+      .channel(`dm_typing_${user.id}_${activePartner.partnerId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'dm_typing',
+          filter: `receiver_id=eq.${user.id}`,
+        },
+        async (payload: any) => {
+          const row = payload.new
+          if (!row) return
+
+          if (row.typer_id !== activePartner.partnerId) return
+
+          const updatedAt = new Date(row.updated_at).getTime()
+          const now = Date.now()
+          const isFresh = now - updatedAt < 5000
+
+          if (!isFresh) return
+
+          setTypingName(activePartner.displayName)
+
+          setTimeout(() => {
+            setTypingName('')
+          }, 3000)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(typingChannel)
+      setTypingName('')
+    }
+  }, [user, activePartner])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, typingName])
 
   const openConversation = async (conv: Conversation) => {
     setActivePartner(conv)
     setMessages([])
+    setTypingName('')
     setShowNewMessage(false)
     setFriendSearch('')
     await loadMessages(conv.partnerId)
@@ -484,6 +560,7 @@ function MessagesPage() {
           <button
             onClick={() => {
               setActivePartner(null)
+              setTypingName('')
               loadConversations()
             }}
             className="text-zinc-400 hover:text-white"
@@ -556,6 +633,13 @@ function MessagesPage() {
             )
           })}
 
+          {typingName && (
+            <div className="flex items-center gap-2 mt-4 text-xs text-zinc-500">
+              <span>{typingName} is typing</span>
+              <span className="animate-pulse">...</span>
+            </div>
+          )}
+
           <div ref={bottomRef} />
         </div>
 
@@ -566,7 +650,7 @@ function MessagesPage() {
             <input
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
               placeholder={`Message ${activePartner.displayName}`}
               className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
