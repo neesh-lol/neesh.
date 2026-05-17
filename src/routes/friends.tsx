@@ -125,11 +125,22 @@ function FriendsPage() {
           .then(r => r.ok ? r.json() : null)
           .then(d => { if (d) setFollowCounts(d) })
           .catch(() => {})
-        fetch('/api/profile-views', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ profileOwnerId: p.netlifyId }),
-        }).catch(() => {})
+        if (p.netlifyId && p.netlifyId !== user.id) {
+  await supabase
+    .from('profile_views')
+    .upsert({
+      viewer_id: user.id,
+      profile_owner_id: p.netlifyId,
+      viewed_at: new Date().toISOString(),
+    })
+
+  const { count } = await supabase
+    .from('profile_views')
+    .select('*', { count: 'exact', head: true })
+    .eq('profile_owner_id', p.netlifyId)
+
+  p.profileViews = count ?? p.profileViews ?? 0
+}
         if (isOwner) {
           fetch(`/api/admin?action=ban-status&userId=${p.netlifyId}`)
             .then(r => r.ok ? r.json() : null)
