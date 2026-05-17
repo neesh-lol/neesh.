@@ -137,7 +137,83 @@ const searchUsers = async () => {
     return () => clearTimeout(t)
   }, [query])
 
-  const viewProfile = async (username: string) => {
+ const viewProfile = async (username: string) => {
+  if (!user) return
+
+  const { data: p, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('username', username)
+    .maybeSingle()
+
+  if (error) {
+    console.error('Profile view load error:', error)
+    alert('Could not load profile.')
+    return
+  }
+
+  if (!p) {
+    alert('User profile not found.')
+    return
+  }
+
+  let profileViews = 0
+
+  if (p.id && p.id !== user.id) {
+    await supabase
+      .from('profile_views')
+      .upsert({
+        viewer_id: user.id,
+        profile_owner_id: p.id,
+        viewed_at: new Date().toISOString(),
+      })
+
+    const { count } = await supabase
+      .from('profile_views')
+      .select('*', { count: 'exact', head: true })
+      .eq('profile_owner_id', p.id)
+
+    profileViews = count ?? 0
+  } else {
+    const { count } = await supabase
+      .from('profile_views')
+      .select('*', { count: 'exact', head: true })
+      .eq('profile_owner_id', p.id)
+
+    profileViews = count ?? 0
+  }
+
+  const mappedProfile: FriendProfile = {
+    id: p.id as any,
+    netlifyId: p.id,
+    displayName: p.display_name ?? 'User',
+    username: p.username ?? null,
+    bio: p.bio ?? '',
+    avatarUrl: p.avatar_url ?? '',
+    interests: p.interests ?? [],
+    score: 0,
+    totalXp: p.total_xp ?? 0,
+    messageCount: p.message_count ?? 0,
+    currentStreak: p.current_streak ?? 0,
+    longestStreak: p.longest_streak ?? 0,
+    friendshipStatus: null,
+    friendshipDirection: null,
+    isSelf: p.id === user.id,
+    isPremium: p.is_premium ?? false,
+    isFounderOverride: p.is_founder_override ?? false,
+    bannerUrl: p.banner_url ?? '',
+    profileTheme: p.profile_theme ?? '',
+    profileColorPrimary: p.profile_color_primary ?? '',
+    profileColorSecondary: p.profile_color_secondary ?? '',
+    profileViews,
+  }
+
+  setViewingProfile(mappedProfile)
+  setAdminMsg('')
+  setBanStatus(null)
+  setIsFollowing(false)
+  setFollowCounts({ followers: 0, following: 0 })
+}
     const res = await fetch(`/api/friends?action=profile&username=${encodeURIComponent(username)}`)
     if (res.ok) {
       const p = await res.json()
