@@ -79,6 +79,10 @@ function mapMessage(row: any, profileMap: Map<string, any>): DirectMessage {
   }
 }
 
+function dmRoomId(a: string, b: string) {
+  return [a, b].sort().join('_')
+}
+
 function MessagesPage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
@@ -227,7 +231,7 @@ function MessagesPage() {
       new Set((rows ?? []).flatMap((m: any) => [m.sender_id, m.receiver_id]))
     )
 
-    let profileMap = new Map<string, any>()
+    const profileMap = new Map<string, any>()
 
     if (userIds.length > 0) {
       const { data: profiles } = await supabase
@@ -247,11 +251,16 @@ function MessagesPage() {
   const sendTypingSignal = async () => {
     if (!user || !activePartner) return
 
+    const roomId = dmRoomId(user.id, activePartner.partnerId)
+
     const { error } = await supabase
-      .from('dm_typing')
+      .from('chat_typing')
       .upsert({
+        chat_type: 'dm',
+        room_id: roomId,
         typer_id: user.id,
         receiver_id: activePartner.partnerId,
+        display_name: 'Someone',
         updated_at: new Date().toISOString(),
       })
 
@@ -264,6 +273,7 @@ function MessagesPage() {
     setInput(value)
 
     if (!value.trim()) return
+
     await sendTypingSignal()
   }
 
@@ -320,23 +330,26 @@ function MessagesPage() {
   useEffect(() => {
     if (!user || !activePartner) return
 
+    const roomId = dmRoomId(user.id, activePartner.partnerId)
+
     const typingChannel = supabase
-      .channel(`dm_typing_${user.id}_${activePartner.partnerId}_${Date.now()}`)
+      .channel(`chat_typing_dm_${roomId}_${user.id}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'dm_typing',
+          table: 'chat_typing',
         },
         (payload: any) => {
           const row = payload.new
           if (!row) return
 
+          const isCorrectChat = row.chat_type === 'dm' && row.room_id === roomId
           const isForMe = row.receiver_id === user.id
-          const isFromActivePartner = row.typer_id === activePartner.partnerId
+          const isFromPartner = row.typer_id === activePartner.partnerId
 
-          if (!isForMe || !isFromActivePartner) return
+          if (!isCorrectChat || !isForMe || !isFromPartner) return
 
           const updatedAt = new Date(row.updated_at).getTime()
           const isFresh = Date.now() - updatedAt < 5000
