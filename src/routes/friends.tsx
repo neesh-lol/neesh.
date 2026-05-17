@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
+import { supabase } from '@/lib/supabase'
 import { useEffect, useState, useCallback } from 'react'
 import { Search, UserPlus, UserCheck, UserX, Clock, ArrowLeft, Zap, Flame, Trophy, Heart, Eye, Users, Shield, Ban, Crown, XCircle } from 'lucide-react'
 import { VerifiedBadge, FOUNDER_USERNAME } from '@/components/VerifiedBadge'
