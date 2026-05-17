@@ -41,7 +41,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   )
 }
 
-const PUBLIC_PATHS = ['/', '/signin', '/signup', '/login', '/terms', '/privacy', '/community-guidelines', '/refund-policy']
+const PUBLIC_PATHS = ['/', '/signin', '/signup', '/login', '/terms', '/privacy', '/community-guidelines', '/refund-policy', '/banned']
 const AUTH_REDIRECT_PATHS = ['/', '/signin', '/signup', '/login']
 
 type ToastKind = 'message' | 'friend' | 'success' | 'notification'
@@ -163,6 +163,8 @@ function AppShell() {
   const [unreadDms, setUnreadDms] = useState(0)
   const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [toasts, setToasts] = useState<AppToast[]>([])
+  const [banChecked, setBanChecked] = useState(false)
+  const [isBanned, setIsBanned] = useState(false)
 
   const pathname = location.pathname
   const isPublicPath = PUBLIC_PATHS.includes(pathname)
@@ -190,7 +192,80 @@ function AppShell() {
   }
 
   useEffect(() => {
+    if (!ready) return
+
+    if (!user) {
+      setBanChecked(true)
+      setIsBanned(false)
+      return
+    }
+
+    async function checkBan() {
+      const { data, error } = await supabase
+        .from('user_bans')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('active', true)
+        .maybeSingle()
+
+      if (error) {
+        console.error('Ban check error:', error)
+        setIsBanned(false)
+        setBanChecked(true)
+        return
+      }
+
+      const banned = !!data
+      setIsBanned(banned)
+      setBanChecked(true)
+
+      if (banned && pathname !== '/banned') {
+        navigate({ to: '/banned', replace: true })
+      }
+    }
+
+    setBanChecked(false)
+    checkBan()
+  }, [ready, user, pathname, navigate])
+
+  useEffect(() => {
     if (!user) return
+
+    const channel = supabase
+      .channel(`root_ban_check_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_bans',
+          filter: `user_id=eq.${user.id}`,
+        },
+        async () => {
+          const { data } = await supabase
+            .from('user_bans')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('active', true)
+            .maybeSingle()
+
+          const banned = !!data
+          setIsBanned(banned)
+
+          if (banned) {
+            navigate({ to: '/banned', replace: true })
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user, navigate])
+
+  useEffect(() => {
+    if (!user || isBanned) return
 
     const markOnline = async () => {
       const now = new Date().toISOString()
@@ -243,10 +318,10 @@ function AppShell() {
       window.removeEventListener('beforeunload', markOffline)
       markOffline()
     }
-  }, [user])
+  }, [user, isBanned])
 
   useEffect(() => {
-    if (!user) return
+    if (!user || isBanned) return
 
     const loadNotificationCounts = async () => {
       try {
@@ -471,10 +546,10 @@ function AppShell() {
       clearInterval(interval)
       supabase.removeChannel(channel)
     }
-  }, [user])
+  }, [user, isBanned])
 
   useEffect(() => {
-    if (!user) return
+    if (!user || isBanned) return
 
     async function updateLoginStreak() {
       const today = new Date()
@@ -548,9 +623,9 @@ function AppShell() {
     }
 
     updateLoginStreak()
-  }, [user])
+  }, [user, isBanned])
 
-  if (!ready) {
+  if (!ready || !banChecked) {
     return (
       <div className="flex h-screen items-center justify-center bg-black">
         <div className="w-6 h-6 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
@@ -558,8 +633,12 @@ function AppShell() {
     )
   }
 
+  if (user && isBanned && pathname !== '/banned') {
+    return <NavigateTo to="/banned" />
+  }
+
   if (isPublicPath) {
-    if (user && AUTH_REDIRECT_PATHS.includes(pathname)) {
+    if (user && AUTH_REDIRECT_PATHS.includes(pathname) && !isBanned) {
       return <NavigateTo to="/home" />
     }
 
@@ -567,6 +646,8 @@ function AppShell() {
   }
 
   if (!user) return <NavigateTo to="/signin" />
+
+  if (isBanned) return <NavigateTo to="/banned" />
 
   const closeMobile = () => setMobileOpen(false)
 
