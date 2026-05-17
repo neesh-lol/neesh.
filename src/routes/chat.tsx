@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useEffect, useRef, useState } from 'react'
 import { Send, X, Clock } from 'lucide-react'
 import { UserPopup } from '@/components/UserPopup'
-import { ChatMessage, ChatMessageData, TypingIndicator, ReplyPreview } from '@/components/ChatMessage'
+import { ChatMessage, ChatMessageData, TypingIndicator, ReplyPreview, PresenceInfo } from '@/components/ChatMessage'
 import {
   containsToxicContent,
   checkSpamCooldown,
@@ -78,6 +78,7 @@ function ChatPage() {
   const [isOwner, setIsOwner] = useState(false)
   const [myProfile, setMyProfile] = useState<any>(null)
   const [profileMap, setProfileMap] = useState<Record<string, any>>({})
+  const [presenceMap, setPresenceMap] = useState<Record<string, PresenceInfo>>({})
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -134,6 +135,36 @@ function ChatPage() {
     }
 
     setProfileMap((prev) => ({
+      ...prev,
+      ...mapped,
+    }))
+  }
+
+  const loadPresence = async (userIds: string[]) => {
+    const cleanIds = Array.from(new Set(userIds)).filter(Boolean)
+
+    if (cleanIds.length === 0) return
+
+    const { data, error } = await supabase
+      .from('user_presence')
+      .select('user_id,status,last_seen,updated_at')
+      .in('user_id', cleanIds)
+
+    if (error) {
+      console.error('Interest presence load error:', error)
+      return
+    }
+
+    const mapped: Record<string, PresenceInfo> = {}
+
+    for (const row of data ?? []) {
+      mapped[row.user_id] = {
+        status: row.status ?? 'offline',
+        lastSeen: row.last_seen ?? row.updated_at ?? null,
+      }
+    }
+
+    setPresenceMap((prev) => ({
       ...prev,
       ...mapped,
     }))
@@ -223,8 +254,11 @@ function ChatPage() {
     }
 
     const rows = data ?? []
+    const userIds = Array.from(new Set(rows.map((m: DbMessage) => m.user_id)))
+
     setMessages(rows.map(toChatMessage))
     await loadSenderProfiles(rows)
+    await loadPresence(userIds)
     await loadReactions()
   }
 
@@ -305,6 +339,7 @@ function ChatPage() {
             const msg = toChatMessage(row)
 
             loadSenderProfiles([row])
+            loadPresence([row.user_id])
 
             if (prev.some((m) => String(m.id) === String(msg.id))) return prev
             return [...prev, msg]
@@ -317,6 +352,38 @@ function ChatPage() {
       supabase.removeChannel(channel)
     }
   }, [activeRoom])
+
+  useEffect(() => {
+    if (!user) return
+
+    const presenceChannel = supabase
+      .channel(`interest_presence_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_presence',
+        },
+        (payload: any) => {
+          const row = payload.new
+          if (!row?.user_id) return
+
+          setPresenceMap((prev) => ({
+            ...prev,
+            [row.user_id]: {
+              status: row.status ?? 'offline',
+              lastSeen: row.last_seen ?? row.updated_at ?? null,
+            },
+          }))
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(presenceChannel)
+    }
+  }, [user])
 
   useEffect(() => {
     if (!user || !activeRoom) return
@@ -414,9 +481,11 @@ function ChatPage() {
       setCooldownMsg(error.message || 'Message failed to send')
       setTimeout(() => setCooldownMsg(''), 3000)
     } else if (data) {
-      const msg = toChatMessage(data as DbMessage)
+      const row = data as DbMessage
+      const msg = toChatMessage(row)
 
-      await loadSenderProfiles([data as DbMessage])
+      await loadSenderProfiles([row])
+      await loadPresence([row.user_id])
 
       setMessages((prev) => {
         if (prev.some((m) => String(m.id) === String(msg.id))) return prev
@@ -666,6 +735,7 @@ function ChatPage() {
               isMuted={mutedUsers.has(msg.userId)}
               isFounder={senderProfile?.username === 'ceo' || senderProfile?.is_founder_override === true}
               isPremiumUser={senderProfile?.is_premium === true || senderProfile?.is_founder_override === true}
+              presence={presenceMap[msg.userId]}
               onAvatarClick={(e, m) => {
                 const rect = e.currentTarget.getBoundingClientRect()
                 setPopup({ userId: m.userId, displayName: m.displayName, avatarUrl: m.avatarUrl || undefined, x: rect.right + 8, y: rect.top })
