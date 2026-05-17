@@ -170,7 +170,31 @@ function CommunityPage() {
       setMyProfile(data)
     }
   }
+const loadReactions = async () => {
+  const { data, error } = await supabase
+    .from('message_reactions')
+    .select('*')
+    .eq('message_type', 'community')
 
+  if (error) {
+    console.error('Reaction load error:', error)
+    return
+  }
+
+  const grouped: Record<string, Array<{ emoji: string; userId: string; displayName: string }>> = {}
+
+  for (const r of data ?? []) {
+    const key = String(r.message_id)
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push({
+      emoji: r.emoji,
+      userId: r.user_id,
+      displayName: r.display_name ?? 'User',
+    })
+  }
+
+  setReactions(grouped)
+}
   const send = async () => {
     if (!user || !input.trim() || sending) return
 
