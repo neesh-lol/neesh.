@@ -351,9 +351,31 @@ function ChatPage() {
     await loadReactions()
   }
 
-  const handleReport = async () => {
-    alert('Reports are being rebuilt for Supabase.')
+  const handleReport = async (msg: ChatMessageData) => {
+  if (!user) return
+
+  const reason = prompt('Why are you reporting this message?')
+  if (reason === null) return
+
+  const { error } = await supabase
+    .from('message_reports')
+    .insert({
+      reporter_id: user.id,
+      reported_user_id: msg.userId,
+      message_type: 'chat',
+      message_id: String(msg.id),
+      reason: reason.trim() || 'No reason provided',
+      message_content: msg.content,
+    })
+
+  if (error) {
+    console.error('Report message error:', error)
+    alert('Failed to submit report.')
+    return
   }
+
+  alert('Report submitted. Thank you.')
+}
 
   const handleMute = (userId: string) => {
     const nowMuted = toggleMuteUser(userId)
