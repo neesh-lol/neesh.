@@ -98,7 +98,7 @@ function MessagesPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (ready && !user) navigate({ to: '/signin' })
@@ -133,9 +133,12 @@ function MessagesPage() {
     }
 
     const rows = dmRows ?? []
+
     const partnerIds = Array.from(
       new Set(
-        rows.map((m: any) => (m.sender_id === user.id ? m.receiver_id : m.sender_id))
+        rows.map((m: any) =>
+          m.sender_id === user.id ? m.receiver_id : m.sender_id
+        )
       )
     )
 
@@ -167,6 +170,7 @@ function MessagesPage() {
     for (const msg of rows) {
       const partnerId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id
       const partner = profileMap.get(partnerId)
+
       if (!partner) continue
 
       if (!convMap.has(partnerId)) {
@@ -223,14 +227,17 @@ function MessagesPage() {
       new Set((rows ?? []).flatMap((m: any) => [m.sender_id, m.receiver_id]))
     )
 
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('*')
-      .in('id', userIds)
+    let profileMap = new Map<string, any>()
 
-    const profileMap = new Map<string, any>()
-    for (const p of profiles ?? []) {
-      profileMap.set(p.id, p)
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', userIds)
+
+      for (const p of profiles ?? []) {
+        profileMap.set(p.id, p)
+      }
     }
 
     setMessages((rows ?? []).map((row: any) => mapMessage(row, profileMap)))
@@ -240,31 +247,29 @@ function MessagesPage() {
   const sendTypingSignal = async () => {
     if (!user || !activePartner) return
 
-    await supabase
+    const { error } = await supabase
       .from('dm_typing')
       .upsert({
         typer_id: user.id,
         receiver_id: activePartner.partnerId,
         updated_at: new Date().toISOString(),
       })
+
+    if (error) {
+      console.error('Typing signal error:', error)
+    }
   }
 
-  const handleInputChange = (value: string) => {
+  const handleInputChange = async (value: string) => {
     setInput(value)
 
     if (!value.trim()) return
-
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current)
-    }
-
-    typingTimeoutRef.current = setTimeout(() => {
-      sendTypingSignal()
-    }, 150)
+    await sendTypingSignal()
   }
 
   useEffect(() => {
     if (!user) return
+
     loadFounder()
     loadConversations()
   }, [user, loadFounder, loadConversations])
@@ -316,30 +321,35 @@ function MessagesPage() {
     if (!user || !activePartner) return
 
     const typingChannel = supabase
-      .channel(`dm_typing_${user.id}_${activePartner.partnerId}`)
+      .channel(`dm_typing_${user.id}_${activePartner.partnerId}_${Date.now()}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'dm_typing',
-          filter: `receiver_id=eq.${user.id}`,
         },
-        async (payload: any) => {
+        (payload: any) => {
           const row = payload.new
           if (!row) return
 
-          if (row.typer_id !== activePartner.partnerId) return
+          const isForMe = row.receiver_id === user.id
+          const isFromActivePartner = row.typer_id === activePartner.partnerId
+
+          if (!isForMe || !isFromActivePartner) return
 
           const updatedAt = new Date(row.updated_at).getTime()
-          const now = Date.now()
-          const isFresh = now - updatedAt < 5000
+          const isFresh = Date.now() - updatedAt < 5000
 
           if (!isFresh) return
 
           setTypingName(activePartner.displayName)
 
-          setTimeout(() => {
+          if (typingClearRef.current) {
+            clearTimeout(typingClearRef.current)
+          }
+
+          typingClearRef.current = setTimeout(() => {
             setTypingName('')
           }, 3000)
         }
@@ -349,6 +359,10 @@ function MessagesPage() {
     return () => {
       supabase.removeChannel(typingChannel)
       setTypingName('')
+
+      if (typingClearRef.current) {
+        clearTimeout(typingClearRef.current)
+      }
     }
   }, [user, activePartner])
 
