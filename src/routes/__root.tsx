@@ -1,4 +1,3 @@
-import { supabase } from '../lib/supabase'
 import { HeadContent, Link, Outlet, Scripts, createRootRoute, useNavigate, useLocation } from '@tanstack/react-router'
 import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown } from 'lucide-react'
 import { IdentityProvider, useIdentity } from '../lib/identity-context'
@@ -32,7 +31,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <IdentityProvider>
-          <CallbackHandler>{children}</CallbackHandler>
+          <CallbackHandler>
+            {children}
+          </CallbackHandler>
         </IdentityProvider>
         <Scripts />
       </body>
@@ -43,14 +44,15 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 const PUBLIC_PATHS = ['/', '/signin', '/signup', '/login', '/terms', '/privacy', '/community-guidelines', '/refund-policy']
 const AUTH_REDIRECT_PATHS = ['/', '/signin', '/signup', '/login']
 
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
-function isYesterday(date: Date, today: Date) {
-  const y = new Date(today)
-  y.setDate(today.getDate() - 1)
-  return isSameDay(date, y)
+function daysBetween(a: Date, b: Date) {
+  const oneDay = 1000 * 60 * 60 * 24
+  const startA = startOfLocalDay(a).getTime()
+  const startB = startOfLocalDay(b).getTime()
+  return Math.floor((startB - startA) / oneDay)
 }
 
 function monthKey(date: Date) {
@@ -96,7 +98,7 @@ function AppShell() {
 
     async function updateLoginStreak() {
       const today = new Date()
-      const currentMonth = monthKey(today)
+      const thisMonth = monthKey(today)
 
       const { data: profile, error } = await supabase
         .from('profiles')
@@ -109,17 +111,17 @@ function AppShell() {
         return
       }
 
-      const isPremium =
+      const hasPremium =
         profile.is_premium === true ||
         profile.is_founder_override === true ||
         profile.username === 'ceo'
 
       let freezesRemaining = profile.streak_freezes_remaining ?? 0
-      let freezeMonth = profile.streak_freezes_reset_month ?? null
+      let resetMonth = profile.streak_freezes_reset_month ?? null
 
-      if (isPremium && freezeMonth !== currentMonth) {
+      if (hasPremium && resetMonth !== thisMonth) {
         freezesRemaining = 3
-        freezeMonth = currentMonth
+        resetMonth = thisMonth
       }
 
       const currentStreak = profile.current_streak ?? 0
@@ -130,18 +132,22 @@ function AppShell() {
 
       if (!lastLogin) {
         newStreak = 1
-      } else if (isSameDay(lastLogin, today)) {
-        newStreak = currentStreak
-      } else if (isYesterday(lastLogin, today)) {
-        newStreak = currentStreak + 1
       } else {
-        const missedDays = Math.floor((today.getTime() - lastLogin.getTime()) / (1000 * 60 * 60 * 24)) - 1
+        const dayDiff = daysBetween(lastLogin, today)
 
-        if (isPremium && missedDays > 0 && freezesRemaining >= missedDays) {
-          freezesRemaining -= missedDays
+        if (dayDiff <= 0) {
+          newStreak = currentStreak
+        } else if (dayDiff === 1) {
           newStreak = currentStreak + 1
         } else {
-          newStreak = 1
+          const missedDays = dayDiff - 1
+
+          if (hasPremium && freezesRemaining >= missedDays) {
+            freezesRemaining -= missedDays
+            newStreak = currentStreak + 1
+          } else {
+            newStreak = 1
+          }
         }
       }
 
@@ -152,7 +158,7 @@ function AppShell() {
           longest_streak: Math.max(longestStreak, newStreak),
           last_login_streak_at: today.toISOString(),
           streak_freezes_remaining: freezesRemaining,
-          streak_freezes_reset_month: freezeMonth,
+          streak_freezes_reset_month: resetMonth,
         })
         .eq('id', user.id)
 
@@ -185,7 +191,10 @@ function AppShell() {
 
   return (
     <div className="flex h-screen bg-zinc-950 text-white">
-      <button onClick={() => setMobileOpen(true)} className="md:hidden fixed top-3 left-3 z-40 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white">
+      <button
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed top-3 left-3 z-40 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white"
+      >
         <Menu size={18} />
       </button>
 
@@ -231,14 +240,20 @@ function SidebarContent({ logout, onNavClick, pendingFriendRequests, unreadMessa
         <div className="my-2 border-t border-zinc-800/50" />
         <NavItem to="/premium-chat" icon={Crown} label="NEESH.+ Chat" onClick={onNavClick} />
       </nav>
+
       <div className="p-3 border-t border-zinc-800 space-y-1">
         <NavItem to="/profile" icon={User} label="Profile" onClick={onNavClick} />
         <NavItem to="/premium" icon={Crown} label="NEESH.+" onClick={onNavClick} />
         <NavItem to="/settings" icon={Settings} label="Settings" onClick={onNavClick} />
-        <button onClick={() => { logout(); onNavClick?.() }} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors text-left">
+
+        <button
+          onClick={() => { logout(); onNavClick?.() }}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors text-left"
+        >
           Sign out
         </button>
       </div>
+
       <div className="px-4 py-3 border-t border-zinc-800 flex flex-wrap gap-x-3 gap-y-1">
         <Link to="/terms" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">Terms</Link>
         <Link to="/privacy" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">Privacy</Link>
@@ -251,8 +266,10 @@ function SidebarContent({ logout, onNavClick, pendingFriendRequests, unreadMessa
 
 function NavigateTo({ to }: { to: string }) {
   const navigate = useNavigate()
+
   useEffect(() => {
     navigate({ to, replace: true })
   }, [to, navigate])
+
   return null
 }
