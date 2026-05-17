@@ -108,6 +108,7 @@ function CommunityPage() {
         console.error('Community messages load error:', error)
         return
       }
+      await loadReactions()
 
       setMessages((data ?? []).map(toChatMessage))
     }
