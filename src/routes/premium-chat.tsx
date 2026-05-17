@@ -50,7 +50,7 @@ function PremiumChatPage() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [replyTo, setReplyTo] = useState<ChatMessageData | null>(null)
-  const [typingNames] = useState<string[]>([])
+  const [typingNames, setTypingNames] = useState<string[]>([])
   const [mutedUsers, setMutedUsers] = useState<Set<string>>(new Set())
   const [blockedUsers] = useState<Set<string>>(new Set())
   const [cooldownMsg, setCooldownMsg] = useState('')
@@ -62,6 +62,7 @@ function PremiumChatPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (ready && !user) navigate({ to: '/signin' })
@@ -122,6 +123,25 @@ function PremiumChatPage() {
     }
 
     setReactions(grouped)
+  }
+
+  const sendTypingSignal = async () => {
+    if (!user || isPremium !== true) return
+
+    const { error } = await supabase
+      .from('chat_typing')
+      .upsert({
+        chat_type: 'premium',
+        room_id: 'premium',
+        typer_id: user.id,
+        receiver_id: null,
+        display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
+        updated_at: new Date().toISOString(),
+      })
+
+    if (error) {
+      console.error('Premium typing signal error:', error)
+    }
   }
 
   useEffect(() => {
@@ -223,8 +243,64 @@ function PremiumChatPage() {
   }, [user, isPremium])
 
   useEffect(() => {
+    if (!user || isPremium !== true) return
+
+    const typingChannel = supabase
+      .channel(`chat_typing_premium_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chat_typing',
+        },
+        (payload: any) => {
+          const row = payload.new
+          if (!row) return
+
+          const isCorrectChat = row.chat_type === 'premium' && row.room_id === 'premium'
+          const isNotMe = row.typer_id !== user.id
+
+          if (!isCorrectChat || !isNotMe) return
+
+          const updatedAt = new Date(row.updated_at).getTime()
+          const isFresh = Date.now() - updatedAt < 5000
+
+          if (!isFresh) return
+
+          setTypingNames([row.display_name ?? 'Someone'])
+
+          if (typingClearRef.current) {
+            clearTimeout(typingClearRef.current)
+          }
+
+          typingClearRef.current = setTimeout(() => {
+            setTypingNames([])
+          }, 3000)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(typingChannel)
+      setTypingNames([])
+
+      if (typingClearRef.current) {
+        clearTimeout(typingClearRef.current)
+      }
+    }
+  }, [user, isPremium])
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, typingNames])
+
+  const handleInputChange = async (value: string) => {
+    setInput(value)
+
+    if (!value.trim()) return
+    await sendTypingSignal()
+  }
 
   const send = async () => {
     if (!user || !input.trim() || sending || isPremium !== true) return
@@ -271,6 +347,7 @@ function PremiumChatPage() {
       })
 
       setInput('')
+      setTypingNames([])
       setReplyTo(null)
       markMessageSent()
       await awardXp()
@@ -519,7 +596,7 @@ function PremiumChatPage() {
           <input
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
             placeholder={replyTo ? `Reply to ${replyTo.displayName}…` : 'Message NEESH.+ members'}
             className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
