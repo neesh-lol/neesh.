@@ -223,10 +223,42 @@ function CommunityPage() {
     setSending(false)
   }
 
-  const handleReact = async () => {
-    setCooldownMsg('Reactions are being rebuilt for Supabase.')
-    setTimeout(() => setCooldownMsg(''), 2000)
+const handleReact = async (messageId: number, emoji: string) => {
+  if (!user) return
+
+  const { data: existing } = await supabase
+    .from('message_reactions')
+    .select('id')
+    .eq('message_type', 'community')
+    .eq('message_id', String(messageId))
+    .eq('user_id', user.id)
+    .eq('emoji', emoji)
+    .maybeSingle()
+
+  if (existing) {
+    await supabase
+      .from('message_reactions')
+      .delete()
+      .eq('id', existing.id)
+  } else {
+    await supabase
+      .from('message_reactions')
+      .insert({
+        message_type: 'community',
+        message_id: String(messageId),
+        user_id: user.id,
+        display_name:
+          myProfile?.display_name ??
+          user.name ??
+          user.email ??
+          'User',
+        emoji,
+      })
   }
+
+  setCooldownMsg('Reaction saved!')
+  setTimeout(() => setCooldownMsg(''), 1000)
+}
 
   const handleReport = async () => {
     alert('Reports are being rebuilt for Supabase.')
