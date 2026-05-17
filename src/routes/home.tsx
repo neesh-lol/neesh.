@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
+import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 import { Flame, Trophy, Target, MessageSquare, Hash, Zap, Star, Crown } from 'lucide-react'
 import { VerifiedBadge } from '@/components/VerifiedBadge'
@@ -31,6 +32,41 @@ interface Challenge {
   completed: boolean
 }
 
+const BASE_CHALLENGES = [
+  {
+    key: 'send_1_message',
+    name: 'Say Hello',
+    description: 'Send your first message.',
+    xpReward: 25,
+    target: 1,
+    category: 'chat',
+  },
+  {
+    key: 'send_10_messages',
+    name: 'Conversation Starter',
+    description: 'Send 10 messages.',
+    xpReward: 100,
+    target: 10,
+    category: 'chat',
+  },
+  {
+    key: 'send_50_messages',
+    name: 'Community Regular',
+    description: 'Send 50 messages.',
+    xpReward: 250,
+    target: 50,
+    category: 'chat',
+  },
+  {
+    key: 'earn_100_xp',
+    name: 'XP Rookie',
+    description: 'Earn 100 XP.',
+    xpReward: 50,
+    target: 100,
+    category: 'xp',
+  },
+]
+
 function HomePage() {
   const { user, ready } = useIdentity()
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -39,19 +75,68 @@ function HomePage() {
 
   useEffect(() => {
     if (!user) return
-    fetch('/api/profile').then(async (r) => {
-      if (r.ok) setProfile(await r.json())
-    })
-    fetch('/api/challenges').then(async (r) => {
-      if (r.ok) setChallenges(await r.json())
-    })
-    fetch('/api/leaderboard').then(async (r) => {
-      if (r.ok) {
-        const data = await r.json()
-        const idx = data.findIndex((e: any) => e.netlifyId === user.id)
-        if (idx >= 0) setRank(idx + 1)
+
+    async function loadHome() {
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (profileError) {
+        console.error('Home profile load error:', profileError)
+        return
       }
-    })
+
+      if (!profileData) return
+
+      const mappedProfile: Profile = {
+        displayName: profileData.display_name ?? user.name ?? user.email ?? 'User',
+        username: profileData.username ?? null,
+        avatarUrl: profileData.avatar_url ?? '',
+        totalXp: profileData.total_xp ?? 0,
+        currentStreak: profileData.current_streak ?? 0,
+        longestStreak: profileData.longest_streak ?? 0,
+        messageCount: profileData.message_count ?? 0,
+        interests: profileData.interests ?? [],
+        isPremium: profileData.is_premium ?? false,
+        isFounderOverride: profileData.is_founder_override ?? false,
+      }
+
+      setProfile(mappedProfile)
+
+      const { data: leaderboardData } = await supabase
+        .from('profiles')
+        .select('id,total_xp')
+        .order('total_xp', { ascending: false })
+
+      const idx = (leaderboardData ?? []).findIndex((p: any) => p.id === user.id)
+      setRank(idx >= 0 ? idx + 1 : null)
+
+      const { data: completedRows } = await supabase
+        .from('completed_challenges')
+        .select('challenge_key')
+        .eq('user_id', user.id)
+
+      const completedSet = new Set((completedRows ?? []).map((r: any) => r.challenge_key))
+
+      const mappedChallenges: Challenge[] = BASE_CHALLENGES.map((c) => {
+        const progress = c.category === 'xp' ? mappedProfile.totalXp : mappedProfile.messageCount
+        return {
+          key: c.key,
+          name: c.name,
+          description: c.description,
+          xpReward: c.xpReward,
+          target: c.target,
+          progress,
+          completed: completedSet.has(c.key) || progress >= c.target,
+        }
+      })
+
+      setChallenges(mappedChallenges)
+    }
+
+    loadHome()
   }, [user])
 
   if (!ready || !user) return null
@@ -59,6 +144,7 @@ function HomePage() {
   const streakDayXp = profile ? Math.min((profile.currentStreak || 1) * 100, 400) : 100
   const completedChallenges = challenges.filter((c) => c.completed).length
   const activeChallenges = challenges.filter((c) => !c.completed).slice(0, 3)
+  const isPremium = profile?.isPremium || profile?.username === 'ceo' || profile?.isFounderOverride
 
   return (
     <div className="flex-1 overflow-y-auto bg-zinc-950">
@@ -66,7 +152,7 @@ function HomePage() {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             Welcome back{profile?.displayName ? `, ${profile.displayName}` : ''}
-            <VerifiedBadge username={profile?.username} isPremium={profile?.isPremium} isFounderOverride={profile?.isFounderOverride} size={18} />
+            <VerifiedBadge username={profile?.username} isPremium={isPremium} isFounderOverride={profile?.isFounderOverride} size={18} />
           </h2>
           <p className="text-zinc-500 text-sm mt-0.5">Here's your activity at a glance.</p>
         </div>
@@ -85,23 +171,21 @@ function HomePage() {
             </h3>
             <span className="text-xs text-zinc-500">Best: {profile?.longestStreak ?? 0}d</span>
           </div>
+
           <div className="flex items-center gap-3">
             {[1, 2, 3, 4].map((day) => (
               <div key={day} className="flex-1 text-center">
-                <div className={`text-xs font-medium mb-1 ${
-                  (profile?.currentStreak ?? 0) >= day ? 'text-orange-400' : 'text-zinc-600'
-                }`}>
+                <div className={`text-xs font-medium mb-1 ${(profile?.currentStreak ?? 0) >= day ? 'text-orange-400' : 'text-zinc-600'}`}>
                   Day {day}{day === 4 ? '+' : ''}
                 </div>
-                <div className={`text-lg font-bold ${
-                  (profile?.currentStreak ?? 0) >= day ? 'text-white' : 'text-zinc-700'
-                }`}>
+                <div className={`text-lg font-bold ${(profile?.currentStreak ?? 0) >= day ? 'text-white' : 'text-zinc-700'}`}>
                   {Math.min(day * 100, 400)}
                 </div>
                 <div className="text-xs text-zinc-600">XP</div>
               </div>
             ))}
           </div>
+
           <p className="text-xs text-zinc-500 mt-3">
             Today's bonus: <span className="text-orange-400 font-medium">+{streakDayXp} XP</span> for your first message
           </p>
@@ -117,6 +201,7 @@ function HomePage() {
                 View all
               </Link>
             </div>
+
             <div className="space-y-3">
               {activeChallenges.map((c) => (
                 <div key={c.key} className="flex items-center gap-3">
@@ -138,6 +223,7 @@ function HomePage() {
                 </div>
               ))}
             </div>
+
             <p className="text-xs text-zinc-600 mt-3">{completedChallenges}/{challenges.length} completed</p>
           </div>
         )}
@@ -162,29 +248,22 @@ function HomePage() {
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Link
-            to="/chat"
-            className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group"
-          >
+          <Link to="/chat" className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group">
             <Hash className="text-zinc-500 group-hover:text-white mb-2" size={18} />
             <p className="text-sm font-medium text-white">Interest Chat</p>
             <p className="text-xs text-zinc-600 mt-0.5">Join rooms by topic</p>
           </Link>
-          <Link
-            to="/community"
-            className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group"
-          >
+
+          <Link to="/community" className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group">
             <MessageSquare className="text-zinc-500 group-hover:text-white mb-2" size={18} />
             <p className="text-sm font-medium text-white">Community</p>
             <p className="text-xs text-zinc-600 mt-0.5">Global chat</p>
           </Link>
-          <Link
-            to="/premium"
-            className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group"
-          >
+
+          <Link to="/premium" className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group">
             <Crown className="text-yellow-400 group-hover:text-yellow-300 mb-2" size={18} />
             <p className="text-sm font-medium text-white">NEESH.+</p>
-            <p className="text-xs text-zinc-600 mt-0.5">{profile?.isPremium ? 'Premium active' : 'Upgrade now'}</p>
+            <p className="text-xs text-zinc-600 mt-0.5">{isPremium ? 'Premium active' : 'Upgrade now'}</p>
           </Link>
         </div>
       </div>
@@ -193,7 +272,10 @@ function HomePage() {
 }
 
 function StatCard({ icon: Icon, label, value, color }: {
-  icon: React.ElementType; label: string; value: string; color: string
+  icon: React.ElementType
+  label: string
+  value: string
+  color: string
 }) {
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3.5">
