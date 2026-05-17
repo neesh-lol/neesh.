@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useEffect, useRef, useState } from 'react'
 import { Send } from 'lucide-react'
 import { UserPopup } from '@/components/UserPopup'
 import { ChatMessage, ChatMessageData, TypingIndicator, ReplyPreview } from '@/components/ChatMessage'
@@ -10,189 +11,186 @@ import {
   markMessageSent,
   getMutedUsers,
   toggleMuteUser,
-  getBlockedUsers,
-  setBlockedUsers,
 } from '@/lib/chat-utils'
 
 export const Route = createFileRoute('/community')({
   component: CommunityPage,
 })
 
-type ReactionMap = Record<number, Array<{ emoji: string; userId: string; displayName: string }>>
+type DbMessage = {
+  id: string
+  user_id: string
+  display_name: string | null
+  avatar_url: string | null
+  content: string
+  reply_to_id: string | null
+  created_at: string
+}
+
+function toChatMessage(row: DbMessage): ChatMessageData {
+  return {
+    id: row.id as any,
+    userId: row.user_id,
+    displayName: row.display_name ?? 'User',
+    avatarUrl: row.avatar_url ?? '',
+    content: row.content,
+    replyToId: row.reply_to_id as any,
+    createdAt: row.created_at,
+  } as ChatMessageData
+}
 
 function CommunityPage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
+
   const [messages, setMessages] = useState<ChatMessageData[]>([])
-  const [reactions, setReactions] = useState<ReactionMap>({})
-  const [founderUserId, setFounderUserId] = useState<string | null>(null)
-  const [premiumUserIds, setPremiumUserIds] = useState<Set<string>>(new Set())
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [replyTo, setReplyTo] = useState<ChatMessageData | null>(null)
-  const [typingNames, setTypingNames] = useState<string[]>([])
+  const [typingNames] = useState<string[]>([])
   const [mutedUsers, setMutedUsers] = useState<Set<string>>(new Set())
-  const [blockedUsers, setBlockedUsersState] = useState<Set<string>>(new Set())
+  const [blockedUsers] = useState<Set<string>>(new Set())
   const [cooldownMsg, setCooldownMsg] = useState('')
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const lastIdRef = useRef(0)
-  const typingTimerRef = useRef<ReturnType<typeof setTimeout>>()
-  const inputRef = useRef<HTMLInputElement>(null)
   const [popup, setPopup] = useState<{ userId: string; displayName: string; avatarUrl?: string; x: number; y: number } | null>(null)
   const [isOwner, setIsOwner] = useState(false)
+  const [myProfile, setMyProfile] = useState<any>(null)
+
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (ready && !user) navigate({ to: '/signin' })
-  }, [ready, user])
-
-  useEffect(() => {
-    if (!user) return
-    fetch('/api/profile')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.username === 'ceo') setIsOwner(true) })
-      .catch(() => {})
-  }, [user])
+  }, [ready, user, navigate])
 
   useEffect(() => {
     setMutedUsers(getMutedUsers())
-    setBlockedUsersState(getBlockedUsers())
-    fetch('/api/blocks')
-      .then((r) => r.ok ? r.json() : [])
-      .then((blocks: Array<{ blockedId: string }>) => {
-        const ids = blocks.map((b) => b.blockedId)
-        setBlockedUsers(ids)
-        setBlockedUsersState(new Set(ids))
-      })
-      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+
+    async function loadProfile() {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      setMyProfile(data)
+      if (data?.username === 'ceo') setIsOwner(true)
+    }
+
+    loadProfile()
   }, [user])
 
   useEffect(() => {
     if (!user) return
-    fetch('/api/community-messages')
-      .then((r) => r.json())
-      .then((data) => {
-        const msgs: ChatMessageData[] = data.messages ?? data
-        setMessages(msgs)
-        setReactions(data.reactions ?? {})
-        setFounderUserId(data.founderUserId ?? null)
-        if (data.premiumUserIds) setPremiumUserIds(new Set(data.premiumUserIds))
-        lastIdRef.current = msgs[msgs.length - 1]?.id ?? 0
-      })
-    const fetchNew = async () => {
-      const res = await fetch('/api/community-messages')
-      if (res.ok) {
-        const data = await res.json()
-        const msgs: ChatMessageData[] = data.messages ?? data
-        setReactions(data.reactions ?? {})
-        setFounderUserId(data.founderUserId ?? null)
-        if (data.premiumUserIds) setPremiumUserIds(new Set(data.premiumUserIds))
-        const newOnes = msgs.filter((m) => m.id > lastIdRef.current)
-        if (newOnes.length) {
+
+    async function loadMessages() {
+      const { data, error } = await supabase
+        .from('community_messages')
+        .select('*')
+        .order('created_at', { ascending: true })
+
+      if (error) {
+        console.error('Community messages load error:', error)
+        return
+      }
+
+      setMessages((data ?? []).map(toChatMessage))
+    }
+
+    loadMessages()
+
+    const channel = supabase
+      .channel('community_messages_live')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'community_messages',
+        },
+        (payload) => {
           setMessages((prev) => {
-            const existingIds = new Set(prev.map((m) => m.id))
-            const filtered = newOnes.filter((m) => !existingIds.has(m.id))
-            return [...prev, ...filtered]
+            const msg = toChatMessage(payload.new as DbMessage)
+            if (prev.some((m) => String(m.id) === String(msg.id))) return prev
+            return [...prev, msg]
           })
-          lastIdRef.current = msgs[msgs.length - 1]?.id ?? lastIdRef.current
         }
-      }
-    }
-    const interval = setInterval(fetchNew, 3000)
-    return () => clearInterval(interval)
-  }, [user])
+      )
+      .subscribe()
 
-  useEffect(() => {
-    if (!user) return
-    const fetchTyping = async () => {
-      const res = await fetch(`/api/typing?roomType=community&excludeUserId=${user.id}`)
-      if (res.ok) {
-        const data: Array<{ displayName: string }> = await res.json()
-        setTypingNames(data.map((d) => d.displayName))
-      }
+    return () => {
+      supabase.removeChannel(channel)
     }
-    const interval = setInterval(fetchTyping, 3000)
-    return () => clearInterval(interval)
   }, [user])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const sendTypingIndicator = useCallback(() => {
-    fetch('/api/typing', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roomType: 'community' }),
-    }).catch(() => {})
-  }, [])
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value)
-    if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
-    sendTypingIndicator()
-    typingTimerRef.current = setTimeout(() => {}, 3000)
   }
 
   const send = async () => {
-    if (!input.trim() || sending) return
+    if (!user || !input.trim() || sending) return
+
     if (containsToxicContent(input)) {
       setCooldownMsg('Message contains inappropriate content')
       setTimeout(() => setCooldownMsg(''), 3000)
       return
     }
+
     const spam = checkSpamCooldown()
     if (!spam.allowed) {
       setCooldownMsg(`Slow down! Wait ${Math.ceil(spam.remainingMs / 1000)}s`)
       setTimeout(() => setCooldownMsg(''), 2000)
       return
     }
+
     setSending(true)
-    try {
-      const res = await fetch('/api/community-messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: input.trim(),
-          replyToId: replyTo?.id || null,
-        }),
+
+    const insertRow = {
+      user_id: user.id,
+      display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
+      avatar_url: myProfile?.avatar_url ?? '',
+      content: input.trim(),
+      reply_to_id: replyTo?.id ? String(replyTo.id) : null,
+    }
+
+    const { data, error } = await supabase
+      .from('community_messages')
+      .insert(insertRow)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Community message send error:', error)
+      setCooldownMsg(error.message || 'Message failed to send')
+      setTimeout(() => setCooldownMsg(''), 3000)
+    } else if (data) {
+      const msg = toChatMessage(data as DbMessage)
+      setMessages((prev) => {
+        if (prev.some((m) => String(m.id) === String(msg.id))) return prev
+        return [...prev, msg]
       })
-      if (res.ok) {
-        const msg: ChatMessageData = await res.json()
-        setMessages((prev) => [...prev, msg])
-        lastIdRef.current = msg.id
-        setInput('')
-        setReplyTo(null)
-        markMessageSent()
-      }
-    } finally {
-      setSending(false)
+      setInput('')
+      setReplyTo(null)
+      markMessageSent()
     }
+
+    setSending(false)
   }
 
-  const handleReact = async (messageId: number, emoji: string) => {
-    const res = await fetch('/api/reactions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageType: 'community', messageId, emoji }),
-    })
-    if (res.ok) {
-      const msgRes = await fetch('/api/community-messages')
-      if (msgRes.ok) {
-        const data = await msgRes.json()
-        setReactions(data.reactions ?? {})
-      }
-    }
+  const handleReact = async () => {
+    setCooldownMsg('Reactions are being rebuilt for Supabase.')
+    setTimeout(() => setCooldownMsg(''), 2000)
   }
 
-  const handleReport = async (msg: ChatMessageData) => {
-    const reason = prompt('Why are you reporting this message?')
-    if (!reason?.trim()) return
-    await fetch('/api/report', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageType: 'community', messageId: msg.id, reason }),
-    })
-    alert('Report submitted')
+  const handleReport = async () => {
+    alert('Reports are being rebuilt for Supabase.')
   }
 
   const handleMute = (userId: string) => {
@@ -201,38 +199,28 @@ function CommunityPage() {
     alert(nowMuted ? 'User muted' : 'User unmuted')
   }
 
-  const handleBlock = async (userId: string) => {
-    if (!confirm('Block this user? You won\'t see their messages.')) return
-    await fetch('/api/blocks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ blockedId: userId }),
-    })
-    const res = await fetch('/api/blocks')
-    if (res.ok) {
-      const blocks: Array<{ blockedId: string }> = await res.json()
-      const ids = blocks.map((b) => b.blockedId)
-      setBlockedUsers(ids)
-      setBlockedUsersState(new Set(ids))
-    }
+  const handleBlock = async () => {
+    alert('Blocking is being rebuilt for Supabase.')
   }
 
   const handleDelete = async (msg: ChatMessageData) => {
+    if (!user) return
     if (!confirm('Delete this message?')) return
-    const isOwnMsg = msg.userId === user?.id
-    let res
-    if (isOwnMsg) {
-      res = await fetch(`/api/community-messages?messageId=${msg.id}`, { method: 'DELETE' })
-    } else if (isOwner) {
-      res = await fetch('/api/admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'delete-message', messageId: msg.id, messageType: 'community' }),
-      })
+
+    const isOwnMsg = msg.userId === user.id
+    if (!isOwnMsg && !isOwner) return
+
+    const { error } = await supabase
+      .from('community_messages')
+      .delete()
+      .eq('id', String(msg.id))
+
+    if (error) {
+      console.error('Delete message error:', error)
+      return
     }
-    if (res?.ok) {
-      setMessages((prev) => prev.filter((m) => m.id !== msg.id))
-    }
+
+    setMessages((prev) => prev.filter((m) => String(m.id) !== String(msg.id)))
   }
 
   if (!ready || !user) return null
@@ -250,22 +238,24 @@ function CommunityPage() {
         {visibleMessages.length === 0 && (
           <p className="text-zinc-600 text-sm text-center mt-16">No messages yet. Say hello!</p>
         )}
+
         {visibleMessages.map((msg, i) => {
           const prev = visibleMessages[i - 1]
           const grouped = prev?.userId === msg.userId && !msg.replyToId
-          const replyTarget = msg.replyToId ? messages.find((m) => m.id === msg.replyToId) ?? null : null
+          const replyTarget = msg.replyToId ? messages.find((m) => String(m.id) === String(msg.replyToId)) ?? null : null
+
           return (
             <ChatMessage
-              key={msg.id}
+              key={String(msg.id)}
               msg={msg}
               grouped={grouped}
               currentUserId={user.id}
               messageType="community"
-              reactions={reactions[msg.id] ?? []}
+              reactions={[]}
               replyTarget={replyTarget}
               isMuted={mutedUsers.has(msg.userId)}
-              isFounder={founderUserId != null && msg.userId === founderUserId}
-              isPremiumUser={premiumUserIds.has(msg.userId)}
+              isFounder={myProfile?.username === 'ceo' && msg.userId === user.id}
+              isPremiumUser={false}
               onAvatarClick={(e, m) => {
                 const rect = e.currentTarget.getBoundingClientRect()
                 setPopup({ userId: m.userId, displayName: m.displayName, avatarUrl: m.avatarUrl || undefined, x: rect.right + 8, y: rect.top })
@@ -285,6 +275,7 @@ function CommunityPage() {
             />
           )
         })}
+
         <div ref={bottomRef} />
       </div>
 
@@ -308,6 +299,7 @@ function CommunityPage() {
         {cooldownMsg && (
           <p className="text-xs text-red-400 mb-2 msg-enter">{cooldownMsg}</p>
         )}
+
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
@@ -317,6 +309,7 @@ function CommunityPage() {
             placeholder={replyTo ? `Reply to ${replyTo.displayName}…` : 'Message #community'}
             className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
           />
+
           <button
             onClick={send}
             disabled={!input.trim() || sending}
