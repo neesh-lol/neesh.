@@ -71,23 +71,12 @@ function AppShell() {
   const pathname = location.pathname
   const isPublicPath = PUBLIC_PATHS.includes(pathname)
 
-  useEffect(() => {
-    if (!user) return
-    const fetchCounts = () => {
-      fetch('/api/notifications')
-        .then((r) => r.ok ? r.json() : null)
-        .then((d) => {
-          if (d) {
-            setPendingCount(d.pendingFriends)
-            setUnreadDms(d.unreadDms + (d.unreadMentions ?? 0))
-          }
-        })
-        .catch(() => {})
-    }
-    fetchCounts()
-    const interval = setInterval(fetchCounts, 15000)
-    return () => clearInterval(interval)
-  }, [user])
+useEffect(() => {
+  if (!user) return
+
+  setPendingCount(0)
+  setUnreadDms(0)
+}, [user])
 
   if (!ready) {
     return (
