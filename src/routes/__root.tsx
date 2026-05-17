@@ -44,6 +44,16 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 const PUBLIC_PATHS = ['/', '/signin', '/signup', '/login', '/terms', '/privacy', '/community-guidelines', '/refund-policy']
 const AUTH_REDIRECT_PATHS = ['/', '/signin', '/signup', '/login']
 
+type ToastKind = 'message' | 'friend' | 'success'
+
+type AppToast = {
+  id: string
+  kind: ToastKind
+  title: string
+  body: string
+  to?: string
+}
+
 function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate())
 }
@@ -89,15 +99,98 @@ function NavItem({
   )
 }
 
+function ToastStack({
+  toasts,
+  onClose,
+  onOpen,
+}: {
+  toasts: AppToast[]
+  onClose: (id: string) => void
+  onOpen: (toast: AppToast) => void
+}) {
+  if (toasts.length === 0) return null
+
+  return (
+    <div className="fixed right-4 bottom-4 z-[100] flex flex-col gap-2 w-[calc(100vw-2rem)] max-w-sm">
+      {toasts.map((toast) => (
+        <button
+          key={toast.id}
+          onClick={() => onOpen(toast)}
+          className="w-full text-left bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl px-4 py-3 hover:border-zinc-500 transition-colors"
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                toast.kind === 'message'
+                  ? 'bg-blue-500/10 text-blue-400'
+                  : toast.kind === 'success'
+                    ? 'bg-emerald-500/10 text-emerald-400'
+                    : 'bg-purple-500/10 text-purple-400'
+              }`}
+            >
+              {toast.kind === 'message' ? <Mail size={16} /> : toast.kind === 'success' ? <Users size={16} /> : <User size={16} />}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-white truncate">{toast.title}</p>
+              <p className="text-xs text-zinc-400 mt-0.5 line-clamp-2">{toast.body}</p>
+            </div>
+
+            <span
+              onClick={(e) => {
+                e.stopPropagation()
+                onClose(toast.id)
+              }}
+              className="text-zinc-500 hover:text-white transition-colors p-1"
+            >
+              <X size={14} />
+            </span>
+          </div>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function AppShell() {
   const { user, ready, logout } = useIdentity()
   const location = useLocation()
+  const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
   const [unreadDms, setUnreadDms] = useState(0)
+  const [toasts, setToasts] = useState<AppToast[]>([])
 
   const pathname = location.pathname
   const isPublicPath = PUBLIC_PATHS.includes(pathname)
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id))
+  }
+
+  const pushToast = (toast: Omit<AppToast, 'id'>) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+    setToasts((prev) => [
+      {
+        ...toast,
+        id,
+      },
+      ...prev,
+    ].slice(0, 4))
+
+    setTimeout(() => {
+      removeToast(id)
+    }, 5000)
+  }
+
+  const openToast = (toast: AppToast) => {
+    removeToast(toast.id)
+
+    if (toast.to) {
+      navigate({ to: toast.to as any })
+    }
+  }
 
   useEffect(() => {
     if (!user) return
@@ -188,6 +281,18 @@ function AppShell() {
       }
     }
 
+    const getProfileLabel = async (profileId: string) => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('username,display_name')
+        .eq('id', profileId)
+        .maybeSingle()
+
+      if (!data) return 'Someone'
+
+      return data.username ? `@${data.username}` : data.display_name ?? 'Someone'
+    }
+
     loadNotificationCounts()
 
     const interval = setInterval(loadNotificationCounts, 10000)
@@ -201,7 +306,45 @@ function AppShell() {
           schema: 'public',
           table: 'friendships',
         },
-        () => loadNotificationCounts()
+        async (payload: any) => {
+          loadNotificationCounts()
+
+          const row = payload.new
+          const oldRow = payload.old
+
+          if (!row) return
+
+          if (
+            payload.eventType === 'INSERT' &&
+            row.receiver_id === user.id &&
+            row.status === 'pending'
+          ) {
+            const name = await getProfileLabel(row.requester_id)
+
+            pushToast({
+              kind: 'friend',
+              title: 'New friend request',
+              body: `${name} sent you a friend request.`,
+              to: '/friends',
+            })
+          }
+
+          if (
+            payload.eventType === 'UPDATE' &&
+            row.requester_id === user.id &&
+            row.status === 'accepted' &&
+            oldRow?.status !== 'accepted'
+          ) {
+            const name = await getProfileLabel(row.receiver_id)
+
+            pushToast({
+              kind: 'success',
+              title: 'Friend request accepted',
+              body: `${name} accepted your friend request.`,
+              to: '/friends',
+            })
+          }
+        }
       )
       .on(
         'postgres_changes',
@@ -210,7 +353,26 @@ function AppShell() {
           schema: 'public',
           table: 'direct_messages',
         },
-        () => loadNotificationCounts()
+        async (payload: any) => {
+          loadNotificationCounts()
+
+          const row = payload.new
+
+          if (
+            payload.eventType === 'INSERT' &&
+            row?.receiver_id === user.id &&
+            row?.sender_id !== user.id
+          ) {
+            const name = await getProfileLabel(row.sender_id)
+
+            pushToast({
+              kind: 'message',
+              title: `New message from ${name}`,
+              body: row.content ?? 'Sent you a message.',
+              to: '/messages',
+            })
+          }
+        }
       )
       .subscribe()
 
@@ -319,6 +481,8 @@ function AppShell() {
 
   return (
     <div className="flex h-screen bg-zinc-950 text-white">
+      <ToastStack toasts={toasts} onClose={removeToast} onOpen={openToast} />
+
       <button
         onClick={() => setMobileOpen(true)}
         className="md:hidden fixed top-3 left-3 z-40 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white"
