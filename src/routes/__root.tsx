@@ -1,7 +1,9 @@
+import { supabase } from '../lib/supabase'
 import { HeadContent, Link, Outlet, Scripts, createRootRoute, useNavigate, useLocation } from '@tanstack/react-router'
 import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown } from 'lucide-react'
 import { IdentityProvider, useIdentity } from '../lib/identity-context'
 import { CallbackHandler } from '../components/CallbackHandler'
+import { supabase } from '../lib/supabase'
 import { useState, useEffect } from 'react'
 import '../styles.css'
 
@@ -30,9 +32,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <IdentityProvider>
-          <CallbackHandler>
-            {children}
-          </CallbackHandler>
+          <CallbackHandler>{children}</CallbackHandler>
         </IdentityProvider>
         <Scripts />
       </body>
@@ -42,6 +42,20 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 
 const PUBLIC_PATHS = ['/', '/signin', '/signup', '/login', '/terms', '/privacy', '/community-guidelines', '/refund-policy']
 const AUTH_REDIRECT_PATHS = ['/', '/signin', '/signup', '/login']
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+function isYesterday(date: Date, today: Date) {
+  const y = new Date(today)
+  y.setDate(today.getDate() - 1)
+  return isSameDay(date, y)
+}
+
+function monthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
 
 function NavItem({ to, icon: Icon, label, onClick, badge }: { to: string; icon: React.ElementType; label: string; onClick?: () => void; badge?: number }) {
   return (
@@ -71,12 +85,84 @@ function AppShell() {
   const pathname = location.pathname
   const isPublicPath = PUBLIC_PATHS.includes(pathname)
 
-useEffect(() => {
-  if (!user) return
+  useEffect(() => {
+    if (!user) return
+    setPendingCount(0)
+    setUnreadDms(0)
+  }, [user])
 
-  setPendingCount(0)
-  setUnreadDms(0)
-}, [user])
+  useEffect(() => {
+    if (!user) return
+
+    async function updateLoginStreak() {
+      const today = new Date()
+      const currentMonth = monthKey(today)
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('current_streak,longest_streak,last_login_streak_at,is_premium,is_founder_override,username,streak_freezes_remaining,streak_freezes_reset_month')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (error || !profile) {
+        if (error) console.error('Streak load error:', error)
+        return
+      }
+
+      const isPremium =
+        profile.is_premium === true ||
+        profile.is_founder_override === true ||
+        profile.username === 'ceo'
+
+      let freezesRemaining = profile.streak_freezes_remaining ?? 0
+      let freezeMonth = profile.streak_freezes_reset_month ?? null
+
+      if (isPremium && freezeMonth !== currentMonth) {
+        freezesRemaining = 3
+        freezeMonth = currentMonth
+      }
+
+      const currentStreak = profile.current_streak ?? 0
+      const longestStreak = profile.longest_streak ?? 0
+      const lastLogin = profile.last_login_streak_at ? new Date(profile.last_login_streak_at) : null
+
+      let newStreak = currentStreak
+
+      if (!lastLogin) {
+        newStreak = 1
+      } else if (isSameDay(lastLogin, today)) {
+        newStreak = currentStreak
+      } else if (isYesterday(lastLogin, today)) {
+        newStreak = currentStreak + 1
+      } else {
+        const missedDays = Math.floor((today.getTime() - lastLogin.getTime()) / (1000 * 60 * 60 * 24)) - 1
+
+        if (isPremium && missedDays > 0 && freezesRemaining >= missedDays) {
+          freezesRemaining -= missedDays
+          newStreak = currentStreak + 1
+        } else {
+          newStreak = 1
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          current_streak: newStreak,
+          longest_streak: Math.max(longestStreak, newStreak),
+          last_login_streak_at: today.toISOString(),
+          streak_freezes_remaining: freezesRemaining,
+          streak_freezes_reset_month: freezeMonth,
+        })
+        .eq('id', user.id)
+
+      if (updateError) {
+        console.error('Streak update error:', updateError)
+      }
+    }
+
+    updateLoginStreak()
+  }, [user])
 
   if (!ready) {
     return (
@@ -99,10 +185,7 @@ useEffect(() => {
 
   return (
     <div className="flex h-screen bg-zinc-950 text-white">
-      <button
-        onClick={() => setMobileOpen(true)}
-        className="md:hidden fixed top-3 left-3 z-40 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white"
-      >
+      <button onClick={() => setMobileOpen(true)} className="md:hidden fixed top-3 left-3 z-40 p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white">
         <Menu size={18} />
       </button>
 
@@ -152,10 +235,7 @@ function SidebarContent({ logout, onNavClick, pendingFriendRequests, unreadMessa
         <NavItem to="/profile" icon={User} label="Profile" onClick={onNavClick} />
         <NavItem to="/premium" icon={Crown} label="NEESH.+" onClick={onNavClick} />
         <NavItem to="/settings" icon={Settings} label="Settings" onClick={onNavClick} />
-        <button
-          onClick={() => { logout(); onNavClick?.() }}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors text-left"
-        >
+        <button onClick={() => { logout(); onNavClick?.() }} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors text-left">
           Sign out
         </button>
       </div>
