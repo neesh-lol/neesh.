@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
+import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 import { Target, Check } from 'lucide-react'
 
@@ -19,6 +20,41 @@ interface Challenge {
   completedAt: string | null
 }
 
+const BASE_CHALLENGES = [
+  {
+    key: 'send_1_message',
+    name: 'Say Hello',
+    description: 'Send your first message.',
+    xpReward: 25,
+    target: 1,
+    category: 'chat',
+  },
+  {
+    key: 'send_10_messages',
+    name: 'Conversation Starter',
+    description: 'Send 10 messages.',
+    xpReward: 100,
+    target: 10,
+    category: 'chat',
+  },
+  {
+    key: 'send_50_messages',
+    name: 'Community Regular',
+    description: 'Send 50 messages.',
+    xpReward: 250,
+    target: 50,
+    category: 'chat',
+  },
+  {
+    key: 'earn_100_xp',
+    name: 'XP Rookie',
+    description: 'Earn 100 XP.',
+    xpReward: 50,
+    target: 100,
+    category: 'xp',
+  },
+]
+
 function ChallengesPage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
@@ -31,9 +67,40 @@ function ChallengesPage() {
 
   useEffect(() => {
     if (!user) return
-    fetch('/api/challenges')
-      .then((r) => r.json())
-      .then((data) => { setChallenges(data); setLoading(false) })
+
+    async function loadChallenges() {
+      setLoading(true)
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('message_count,total_xp')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (error) {
+        console.error('Challenges load error:', error)
+      }
+
+      const messageCount = profile?.message_count ?? 0
+      const totalXp = profile?.total_xp ?? 0
+
+      const mapped: Challenge[] = BASE_CHALLENGES.map((c) => {
+        const progress = c.category === 'xp' ? totalXp : messageCount
+        const completed = progress >= c.target
+
+        return {
+          ...c,
+          progress,
+          completed,
+          completedAt: completed ? new Date().toISOString() : null,
+        }
+      })
+
+      setChallenges(mapped)
+      setLoading(false)
+    }
+
+    loadChallenges()
   }, [user])
 
   if (!ready || !user) return null
@@ -86,6 +153,7 @@ function ChallengesPage() {
 
 function ChallengeCard({ challenge: c }: { challenge: Challenge }) {
   const pct = Math.min((c.progress / c.target) * 100, 100)
+
   return (
     <div className={`bg-zinc-900 border rounded-xl p-4 ${c.completed ? 'border-emerald-800/50' : 'border-zinc-800'}`}>
       <div className="flex items-start justify-between">
@@ -100,6 +168,7 @@ function ChallengeCard({ challenge: c }: { challenge: Challenge }) {
           +{c.xpReward} XP
         </span>
       </div>
+
       {!c.completed && (
         <div className="mt-3 flex items-center gap-2">
           <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
