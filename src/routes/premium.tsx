@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
+import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 import { BadgeCheck, Crown, Shield, Eye, MessageSquare, Palette, Star, ChevronRight, Loader2, ExternalLink, CheckCircle, XCircle, X } from 'lucide-react'
 
@@ -27,13 +28,6 @@ function SubscriptionModal({ onClose }: { onClose: () => void }) {
   const handleContinue = async () => {
     if (!agreed) return
     setSubmitting(true)
-    try {
-      await fetch('/api/terms-consent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ termsAccepted: true, subscriptionDisclosureAccepted: true }),
-      })
-    } catch {}
     window.location.href = 'https://buy.stripe.com/28E28q4Uh6fc5Jw35ddnW00'
   }
 
@@ -66,7 +60,7 @@ function SubscriptionModal({ onClose }: { onClose: () => void }) {
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-2.5">
               <p className="text-white font-medium text-sm">Subscription Details</p>
               <p>Your subscription will automatically renew each month at <span className="text-white">$4.99/month</span> until you cancel.</p>
-              <p>You may <span className="text-white">cancel anytime</span> from your Stripe customer portal. Cancellation takes effect at the end of the current billing period.</p>
+              <p>You may <span className="text-white">cancel anytime</span> from your Stripe customer portal.</p>
               <p>Subscriptions are <span className="text-white">non-refundable</span>. See our <Link to="/refund-policy" className="underline text-white hover:text-zinc-300" target="_blank">Refund Policy</Link> for details.</p>
             </div>
           </div>
@@ -102,14 +96,7 @@ function SubscriptionModal({ onClose }: { onClose: () => void }) {
             disabled={!agreed || submitting}
             className="w-full py-3 bg-white text-zinc-950 font-semibold rounded-xl text-sm hover:bg-zinc-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {submitting ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <>
-                <Crown size={16} />
-                Continue to Stripe
-              </>
-            )}
+            {submitting ? <Loader2 size={16} className="animate-spin" /> : <><Crown size={16} /> Continue to Stripe</>}
           </button>
 
           <p className="text-[10px] text-zinc-600 text-center">
@@ -133,29 +120,44 @@ function PremiumPage() {
 
   useEffect(() => {
     if (ready && !user) navigate({ to: '/signin' })
-  }, [ready, user])
+  }, [ready, user, navigate])
 
   useEffect(() => {
     if (!user) return
-    fetch('/api/subscription')
-      .then(r => r.json())
-      .then(d => { setStatus(d); setLoading(false) })
-      .catch(() => setLoading(false))
+
+    async function loadPremiumStatus() {
+      setLoading(true)
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username, is_premium, is_founder_override')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (error) console.error('Premium status error:', error)
+
+      const isFounder = data?.username === 'ceo' || data?.is_founder_override === true
+      const isPremium = isFounder || data?.is_premium === true
+
+      setStatus({
+        isPremium,
+        isFounder,
+        premiumSince: null,
+        premiumExpires: null,
+        hasStripeSubscription: false,
+        subscriptionTier: isPremium ? 'neesh+' : null,
+      })
+
+      setLoading(false)
+    }
+
+    loadPremiumStatus()
   }, [user])
 
   const handleManage = async () => {
     setActionLoading(true)
-    try {
-      const res = await fetch('/api/subscription', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'create-portal' }),
-      })
-      const data = await res.json()
-      if (data.url) window.location.href = data.url
-    } finally {
-      setActionLoading(false)
-    }
+    alert('Subscription management is being rebuilt with Supabase/Stripe.')
+    setActionLoading(false)
   }
 
   if (!ready || !user || loading) {
@@ -190,10 +192,7 @@ function PremiumPage() {
       <div className="max-w-lg mx-auto w-full px-5 py-8 space-y-8">
         {success && showBanner && (
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5 relative">
-            <button
-              onClick={() => { setShowBanner(false); navigate({ to: '/premium', search: {} as any }) }}
-              className="absolute top-3 right-3 text-zinc-500 hover:text-white transition-colors"
-            >
+            <button onClick={() => { setShowBanner(false); navigate({ to: '/premium', search: {} as any }) }} className="absolute top-3 right-3 text-zinc-500 hover:text-white transition-colors">
               <XCircle size={16} />
             </button>
             <div className="flex items-center gap-3 mb-2">
@@ -201,26 +200,21 @@ function PremiumPage() {
               <h2 className="text-sm font-semibold text-emerald-400">Welcome to neesh.+</h2>
             </div>
             <p className="text-xs text-zinc-400">
-              Your subscription is active. All premium features are now unlocked — enjoy your verified badge, custom profile options, and exclusive members chat.
+              Your subscription is active. All premium features are now unlocked.
             </p>
           </div>
         )}
 
         {canceled && showBanner && (
           <div className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-5 relative">
-            <button
-              onClick={() => { setShowBanner(false); navigate({ to: '/premium', search: {} as any }) }}
-              className="absolute top-3 right-3 text-zinc-500 hover:text-white transition-colors"
-            >
+            <button onClick={() => { setShowBanner(false); navigate({ to: '/premium', search: {} as any }) }} className="absolute top-3 right-3 text-zinc-500 hover:text-white transition-colors">
               <XCircle size={16} />
             </button>
             <div className="flex items-center gap-3 mb-2">
               <XCircle size={20} className="text-zinc-400" />
               <h2 className="text-sm font-semibold text-zinc-300">Checkout canceled</h2>
             </div>
-            <p className="text-xs text-zinc-500">
-              No worries — you can subscribe anytime. Your account is unchanged.
-            </p>
+            <p className="text-xs text-zinc-500">No worries — you can subscribe anytime.</p>
           </div>
         )}
 
@@ -242,10 +236,7 @@ function PremiumPage() {
               <BadgeCheck size={20} className="text-white" />
               <h2 className="text-sm font-semibold text-white">Active Subscription</h2>
             </div>
-            <p className="text-xs text-zinc-400">
-              Member since {status.premiumSince ? new Date(status.premiumSince).toLocaleDateString() : 'recently'}
-              {status.premiumExpires && ` · Renews ${new Date(status.premiumExpires).toLocaleDateString()}`}
-            </p>
+            <p className="text-xs text-zinc-400">Your NEESH.+ membership is active.</p>
             {status.hasStripeSubscription && (
               <button
                 onClick={handleManage}
@@ -294,9 +285,7 @@ function PremiumPage() {
                 <p className="text-sm font-medium text-white">{label}</p>
                 <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
               </div>
-              {status?.isPremium && (
-                <BadgeCheck size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-              )}
+              {status?.isPremium && <BadgeCheck size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />}
             </div>
           ))}
         </div>
