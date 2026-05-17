@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
+import { supabase } from '@/lib/supabase'
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Send, ArrowLeft, Plus, Search } from 'lucide-react'
 import { VerifiedBadge, FOUNDER_USERNAME } from '@/components/VerifiedBadge'
@@ -33,10 +34,11 @@ interface Conversation {
   lastMessageAt: string
   isLastFromMe: boolean
   unreadCount?: number
+  isFounder?: boolean
 }
 
 interface DirectMessage {
-  id: number
+  id: string
   senderId: string
   receiverId: string
   senderDisplayName: string
@@ -46,11 +48,12 @@ interface DirectMessage {
 }
 
 interface FriendEntry {
-  id: number
+  id: string
   displayName: string
   username: string | null
   avatarUrl: string
-  netlifyId?: string
+  netlifyId: string
+  isFounder?: boolean
 }
 
 function Avatar({ name, url, size = 'w-10 h-10' }: { name: string; url?: string; size?: string }) {
@@ -62,9 +65,24 @@ function Avatar({ name, url, size = 'w-10 h-10' }: { name: string; url?: string;
   )
 }
 
+function mapMessage(row: any, profileMap: Map<string, any>): DirectMessage {
+  const senderProfile = profileMap.get(row.sender_id)
+
+  return {
+    id: row.id,
+    senderId: row.sender_id,
+    receiverId: row.receiver_id,
+    senderDisplayName: senderProfile?.display_name ?? 'User',
+    senderAvatarUrl: senderProfile?.avatar_url ?? '',
+    content: row.content,
+    createdAt: row.created_at,
+  }
+}
+
 function MessagesPage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
+
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activePartner, setActivePartner] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<DirectMessage[]>([])
@@ -76,45 +94,188 @@ function MessagesPage() {
   const [showNewMessage, setShowNewMessage] = useState(false)
   const [friends, setFriends] = useState<FriendEntry[]>([])
   const [friendSearch, setFriendSearch] = useState('')
+
   const bottomRef = useRef<HTMLDivElement>(null)
-  const lastIdRef = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (ready && !user) navigate({ to: '/signin' })
-  }, [ready, user])
+  }, [ready, user, navigate])
 
-  const loadConversations = useCallback(async () => {
-    const res = await fetch('/api/direct-messages')
-    if (res.ok) {
-      const data = await res.json()
-      setConversations(data.conversations)
-    }
-    setLoading(false)
+  const loadFounder = useCallback(async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', FOUNDER_USERNAME)
+      .maybeSingle()
+
+    setFounderUserId(data?.id ?? null)
   }, [])
 
-  useEffect(() => {
-    if (user) loadConversations()
-  }, [user, loadConversations])
+  const loadConversations = useCallback(async () => {
+    if (!user) return
 
-  useEffect(() => {
-    if (!activePartner) return
-    const fetchMessages = async () => {
-      const res = await fetch(`/api/direct-messages?partnerId=${activePartner.partnerId}`)
-      if (res.ok) {
-        const data = await res.json()
-        const msgs: DirectMessage[] = data.messages
-        setFounderUserId(data.founderUserId ?? null)
-        const newOnes = msgs.filter((m) => m.id > lastIdRef.current)
-        if (newOnes.length) {
-          setMessages((prev) => [...prev, ...newOnes])
-          lastIdRef.current = msgs[msgs.length - 1]?.id ?? lastIdRef.current
-        }
+    setLoading(true)
+
+    const { data: dmRows, error } = await supabase
+      .from('direct_messages')
+      .select('*')
+      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Conversation load error:', error)
+      setConversations([])
+      setLoading(false)
+      return
+    }
+
+    const rows = dmRows ?? []
+    const partnerIds = Array.from(
+      new Set(
+        rows.map((m: any) => (m.sender_id === user.id ? m.receiver_id : m.sender_id))
+      )
+    )
+
+    if (partnerIds.length === 0) {
+      setConversations([])
+      setLoading(false)
+      return
+    }
+
+    const { data: profiles, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .in('id', partnerIds)
+
+    if (profileError) {
+      console.error('Conversation profile load error:', profileError)
+      setConversations([])
+      setLoading(false)
+      return
+    }
+
+    const profileMap = new Map<string, any>()
+    for (const p of profiles ?? []) {
+      profileMap.set(p.id, p)
+    }
+
+    const convMap = new Map<string, Conversation>()
+
+    for (const msg of rows) {
+      const partnerId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id
+      const partner = profileMap.get(partnerId)
+      if (!partner) continue
+
+      if (!convMap.has(partnerId)) {
+        const unreadCount = rows.filter(
+          (m: any) =>
+            m.sender_id === partnerId &&
+            m.receiver_id === user.id &&
+            !m.read_at
+        ).length
+
+        convMap.set(partnerId, {
+          partnerId,
+          displayName: partner.display_name ?? 'User',
+          username: partner.username ?? null,
+          avatarUrl: partner.avatar_url ?? '',
+          lastMessage: msg.content,
+          lastMessageAt: msg.created_at,
+          isLastFromMe: msg.sender_id === user.id,
+          unreadCount,
+          isFounder: partner.username === FOUNDER_USERNAME,
+        })
       }
     }
-    const interval = setInterval(fetchMessages, 3000)
-    return () => clearInterval(interval)
-  }, [activePartner])
+
+    setConversations(Array.from(convMap.values()))
+    setLoading(false)
+  }, [user])
+
+  const loadMessages = async (partnerId: string) => {
+    if (!user) return
+
+    const { data: rows, error } = await supabase
+      .from('direct_messages')
+      .select('*')
+      .or(
+        `and(sender_id.eq.${user.id},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${user.id})`
+      )
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      console.error('DM load error:', error)
+      setMessages([])
+      return
+    }
+
+    await supabase
+      .from('direct_messages')
+      .update({ read_at: new Date().toISOString() })
+      .eq('sender_id', partnerId)
+      .eq('receiver_id', user.id)
+      .is('read_at', null)
+
+    const userIds = Array.from(
+      new Set((rows ?? []).flatMap((m: any) => [m.sender_id, m.receiver_id]))
+    )
+
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('*')
+      .in('id', userIds)
+
+    const profileMap = new Map<string, any>()
+    for (const p of profiles ?? []) {
+      profileMap.set(p.id, p)
+    }
+
+    setMessages((rows ?? []).map((row: any) => mapMessage(row, profileMap)))
+    await loadConversations()
+  }
+
+  useEffect(() => {
+    if (!user) return
+    loadFounder()
+    loadConversations()
+  }, [user, loadFounder, loadConversations])
+
+  useEffect(() => {
+    if (!activePartner || !user) return
+
+    loadMessages(activePartner.partnerId)
+
+    const channel = supabase
+      .channel(`direct_messages_${user.id}_${activePartner.partnerId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'direct_messages',
+        },
+        (payload: any) => {
+          const row = payload.new ?? payload.old
+          if (!row) return
+
+          const isThisConversation =
+            (row.sender_id === user.id && row.receiver_id === activePartner.partnerId) ||
+            (row.sender_id === activePartner.partnerId && row.receiver_id === user.id)
+
+          if (isThisConversation) {
+            loadMessages(activePartner.partnerId)
+          } else {
+            loadConversations()
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [activePartner, user])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -123,90 +284,149 @@ function MessagesPage() {
   const openConversation = async (conv: Conversation) => {
     setActivePartner(conv)
     setMessages([])
-    lastIdRef.current = 0
-    const res = await fetch(`/api/direct-messages?partnerId=${conv.partnerId}`)
-    if (res.ok) {
-      const data = await res.json()
-      setMessages(data.messages)
-      setFounderUserId(data.founderUserId ?? null)
-      if (data.messages.length) lastIdRef.current = data.messages[data.messages.length - 1].id
-    }
+    setShowNewMessage(false)
+    setFriendSearch('')
+    await loadMessages(conv.partnerId)
   }
 
   const startNewConversation = async () => {
+    if (!user) return
+
     setShowNewMessage(true)
-    const res = await fetch('/api/friends')
-    if (res.ok) {
-      const data = await res.json()
-      setFriends(data.friends ?? [])
+
+    const { data: friendshipRows, error } = await supabase
+      .from('friendships')
+      .select('*')
+      .eq('status', 'accepted')
+      .or(`requester_id.eq.${user.id},receiver_id.eq.${user.id}`)
+
+    if (error) {
+      console.error('Friend list load error:', error)
+      setFriends([])
+      return
     }
+
+    const friendIds = Array.from(
+      new Set(
+        (friendshipRows ?? []).map((f: any) =>
+          f.requester_id === user.id ? f.receiver_id : f.requester_id
+        )
+      )
+    )
+
+    if (friendIds.length === 0) {
+      setFriends([])
+      return
+    }
+
+    const { data: profiles, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .in('id', friendIds)
+
+    if (profileError) {
+      console.error('Friend profile list error:', profileError)
+      setFriends([])
+      return
+    }
+
+    setFriends(
+      (profiles ?? []).map((p: any) => ({
+        id: p.id,
+        netlifyId: p.id,
+        displayName: p.display_name ?? 'User',
+        username: p.username ?? null,
+        avatarUrl: p.avatar_url ?? '',
+        isFounder: p.username === FOUNDER_USERNAME,
+      }))
+    )
   }
 
   const selectFriend = (friend: FriendEntry) => {
-    const partnerId = friend.netlifyId
-    if (!partnerId) return
-    const existing = conversations.find((c) => c.partnerId === partnerId)
+    const existing = conversations.find((c) => c.partnerId === friend.netlifyId)
+
     const conv: Conversation = existing ?? {
-      partnerId,
+      partnerId: friend.netlifyId,
       displayName: friend.displayName,
       username: friend.username,
       avatarUrl: friend.avatarUrl,
       lastMessage: '',
       lastMessageAt: new Date().toISOString(),
       isLastFromMe: false,
+      unreadCount: 0,
+      isFounder: friend.username === FOUNDER_USERNAME,
     }
-    setShowNewMessage(false)
-    setFriendSearch('')
+
     openConversation(conv)
   }
 
   const sendMessage = async () => {
-    if (!input.trim() || sending || !activePartner) return
+    if (!user || !input.trim() || sending || !activePartner) return
+
     if (containsToxicContent(input)) {
       setCooldownMsg('Message contains inappropriate content')
       setTimeout(() => setCooldownMsg(''), 3000)
       return
     }
+
     const spam = checkSpamCooldown()
     if (!spam.allowed) {
       setCooldownMsg(`Slow down! Wait ${Math.ceil(spam.remainingMs / 1000)}s`)
       setTimeout(() => setCooldownMsg(''), 2000)
       return
     }
+
     setSending(true)
-    try {
-      const res = await fetch('/api/direct-messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ receiverId: activePartner.partnerId, content: input.trim() }),
+
+    const { error } = await supabase
+      .from('direct_messages')
+      .insert({
+        sender_id: user.id,
+        receiver_id: activePartner.partnerId,
+        content: input.trim(),
       })
-      if (res.ok) {
-        const msg: DirectMessage = await res.json()
-        setMessages((prev) => [...prev, msg])
-        lastIdRef.current = msg.id
-        setInput('')
-        markMessageSent()
-        loadConversations()
-      }
-    } finally {
+
+    if (error) {
+      console.error('Send DM error:', error)
+      setCooldownMsg(error.message || 'Message failed to send')
+      setTimeout(() => setCooldownMsg(''), 3000)
       setSending(false)
+      return
     }
+
+    setInput('')
+    markMessageSent()
+    await loadMessages(activePartner.partnerId)
+    setSending(false)
   }
 
-  const deleteMessage = async (msgId: number) => {
-    const res = await fetch(`/api/direct-messages?messageId=${msgId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setMessages((prev) => prev.filter((m) => m.id !== msgId))
+  const deleteMessage = async (msgId: string) => {
+    if (!user) return
+
+    const { error } = await supabase
+      .from('direct_messages')
+      .delete()
+      .eq('id', msgId)
+      .eq('sender_id', user.id)
+
+    if (error) {
+      console.error('Delete DM error:', error)
+      return
     }
+
+    setMessages((prev) => prev.filter((m) => m.id !== msgId))
+    await loadConversations()
   }
 
   if (!ready || !user) return null
 
   if (showNewMessage) {
     const filtered = friends.filter((f) =>
-      !friendSearch || f.displayName.toLowerCase().includes(friendSearch.toLowerCase()) ||
+      !friendSearch ||
+      f.displayName.toLowerCase().includes(friendSearch.toLowerCase()) ||
       (f.username && f.username.toLowerCase().includes(friendSearch.toLowerCase()))
     )
+
     return (
       <div className="flex flex-col h-full bg-zinc-950">
         <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
@@ -215,6 +435,7 @@ function MessagesPage() {
           </button>
           <h1 className="text-sm font-semibold text-white">New Message</h1>
         </div>
+
         <div className="px-5 py-3">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -227,12 +448,14 @@ function MessagesPage() {
             />
           </div>
         </div>
+
         <div className="flex-1 overflow-y-auto">
           {filtered.length === 0 && (
             <p className="text-xs text-zinc-500 text-center py-8">
               {friends.length === 0 ? 'Add friends to start messaging' : 'No friends match your search'}
             </p>
           )}
+
           {filtered.map((f) => (
             <button
               key={f.id}
@@ -259,12 +482,17 @@ function MessagesPage() {
       <div className="flex flex-col h-full bg-zinc-950">
         <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
           <button
-            onClick={() => { setActivePartner(null); loadConversations() }}
+            onClick={() => {
+              setActivePartner(null)
+              loadConversations()
+            }}
             className="text-zinc-400 hover:text-white"
           >
             <ArrowLeft size={18} />
           </button>
+
           <Avatar name={activePartner.displayName} url={activePartner.avatarUrl || undefined} size="w-8 h-8" />
+
           <div className="min-w-0">
             <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
               {activePartner.displayName}
@@ -278,11 +506,13 @@ function MessagesPage() {
           {messages.length === 0 && (
             <p className="text-zinc-600 text-sm text-center mt-16">No messages yet. Say hello!</p>
           )}
+
           {messages.map((msg, i) => {
             const isOwn = msg.senderId === user.id
             const prev = messages[i - 1]
             const grouped = prev?.senderId === msg.senderId
             const isFounder = msg.senderId === founderUserId
+
             return (
               <div key={msg.id} className={`flex items-start gap-3 ${grouped ? 'mt-0.5' : 'mt-4'} group relative`}>
                 {grouped ? (
@@ -294,6 +524,7 @@ function MessagesPage() {
                     size="w-8 h-8"
                   />
                 )}
+
                 <div className="min-w-0 flex-1">
                   {!grouped && (
                     <div className="flex items-center gap-2 mb-0.5">
@@ -306,10 +537,12 @@ function MessagesPage() {
                       </span>
                     </div>
                   )}
+
                   <p className={`text-sm break-words ${isOwn ? 'text-zinc-100' : 'text-zinc-300'}`}>
                     {renderContentWithMentions(msg.content)}
                   </p>
                 </div>
+
                 {isOwn && (
                   <button
                     onClick={() => deleteMessage(msg.id)}
@@ -322,11 +555,13 @@ function MessagesPage() {
               </div>
             )
           })}
+
           <div ref={bottomRef} />
         </div>
 
         <div className="px-5 py-4 border-t border-zinc-800">
           {cooldownMsg && <p className="text-xs text-red-400 mb-2">{cooldownMsg}</p>}
+
           <div className="flex items-center gap-2">
             <input
               ref={inputRef}
@@ -337,6 +572,7 @@ function MessagesPage() {
               className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
               autoFocus
             />
+
             <button
               onClick={sendMessage}
               disabled={!input.trim() || sending}
@@ -357,6 +593,7 @@ function MessagesPage() {
           <h1 className="text-sm font-semibold text-white">Messages</h1>
           <p className="text-xs text-zinc-500">Direct messages with friends</p>
         </div>
+
         <button
           onClick={startNewConversation}
           className="p-2 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
@@ -372,6 +609,7 @@ function MessagesPage() {
             <div className="w-5 h-5 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
           </div>
         )}
+
         {!loading && conversations.length === 0 && (
           <div className="text-center py-16">
             <p className="text-sm text-zinc-500 mb-3">No messages yet</p>
@@ -383,6 +621,7 @@ function MessagesPage() {
             </button>
           </div>
         )}
+
         {conversations.map((conv) => (
           <button
             key={conv.partnerId}
@@ -390,21 +629,25 @@ function MessagesPage() {
             className="w-full flex items-center gap-3 px-5 py-3.5 border-b border-zinc-900 hover:bg-zinc-900/50 transition-colors text-left"
           >
             <Avatar name={conv.displayName} url={conv.avatarUrl || undefined} />
+
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
                   {conv.displayName}
                   {conv.username === FOUNDER_USERNAME && <VerifiedBadge username={conv.username} size={14} />}
                 </p>
+
                 <span className="text-[10px] text-zinc-600 flex-shrink-0">
                   {new Date(conv.lastMessageAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                 </span>
               </div>
+
               <div className="flex items-center justify-between mt-0.5">
                 <p className="text-xs text-zinc-500 truncate flex-1 min-w-0">
                   {conv.isLastFromMe && <span className="text-zinc-600">You: </span>}
                   {conv.lastMessage}
                 </p>
+
                 {(conv.unreadCount ?? 0) > 0 && (
                   <span className="ml-2 flex-shrink-0 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
                     {(conv.unreadCount ?? 0) > 99 ? '99+' : conv.unreadCount}
