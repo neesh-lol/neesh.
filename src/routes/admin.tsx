@@ -71,7 +71,9 @@ function AdminPage() {
   const [msg, setMsg] = useState('')
 
   useEffect(() => {
-    if (ready && !user) navigate({ to: '/signin' })
+    if (ready && !user) {
+      navigate({ to: '/signin' })
+    }
   }, [ready, user, navigate])
 
   useEffect(() => {
@@ -156,7 +158,9 @@ function AdminPage() {
   }
 
   useEffect(() => {
-    if (isOwner) loadReports()
+    if (isOwner) {
+      loadReports()
+    }
   }, [isOwner, filter])
 
   useEffect(() => {
@@ -195,7 +199,7 @@ function AdminPage() {
       console.error('Report status update error:', error)
       setMsg(`Failed: ${error.message}`)
     } else {
-      setMsg(status === 'dismissed' ? 'Report dismissed.' : 'Report reopened.')
+      setMsg(status === 'dismissed' ? 'Report dismissed.' : 'Report updated.')
       await loadReports()
     }
 
@@ -265,6 +269,7 @@ function AdminPage() {
     if (!userId) return
 
     const target = profiles[userId]
+
     if (target?.username === 'ceo') {
       setMsg('Founder NEESH.+ cannot be revoked.')
       return
@@ -294,49 +299,11 @@ function AdminPage() {
     setActionLoading('')
   }
 
-const banUser = async (userId: string | null) => {
-  if (!userId) return
-
-  const target = profiles[userId]
-
-  if (target?.username === 'ceo') {
-    setMsg('You cannot ban the founder account.')
-    return
-  }
-
-  const reason = prompt('Ban reason:')
-  if (reason === null) return
-
-  setActionLoading(userId)
-  setMsg('')
-
-  const { error } = await supabase
-    .from('user_bans')
-    .upsert(
-      {
-        user_id: userId,
-        reason: reason.trim() || 'Banned by admin',
-        banned_by: user?.id ?? null,
-        active: true,
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: 'user_id',
-      }
-    )
-
-  if (error) {
-    console.error('Ban user error:', error)
-    setMsg(`Ban failed: ${error.message}`)
-  } else {
-    setMsg('User banned. They will be redirected to the banned page.')
-  }
-
-  setActionLoading('')
-}
+  const banUser = async (userId: string | null) => {
     if (!userId) return
 
     const target = profiles[userId]
+
     if (target?.username === 'ceo') {
       setMsg('You cannot ban the founder account.')
       return
@@ -350,21 +317,24 @@ const banUser = async (userId: string | null) => {
 
     const { error } = await supabase
       .from('user_bans')
-      .upsert({
-        user_id: userId,
-        reason: reason.trim() || 'Banned by admin',
-        banned_by: user?.id ?? null,
-        active: true,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(
+        {
+          user_id: userId,
+          reason: reason.trim() || 'Banned by admin',
+          banned_by: user?.id ?? null,
+          active: true,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'user_id',
+        }
+      )
 
     if (error) {
       console.error('Ban user error:', error)
-      setMsg(
-        `Ban failed. If this says user_bans does not exist, run the user_bans SQL next. ${error.message}`
-      )
+      setMsg(`Ban failed: ${error.message}`)
     } else {
-      setMsg('User banned.')
+      setMsg('User banned. They will be redirected to the banned page.')
     }
 
     setActionLoading('')
@@ -465,9 +435,11 @@ const banUser = async (userId: string | null) => {
             {reports.map((report) => {
               const reporter = report.reporter_id ? profiles[report.reporter_id] : null
               const reported = report.reported_user_id ? profiles[report.reported_user_id] : null
+
               const reportedName = reported?.username
                 ? `@${reported.username}`
                 : reported?.display_name ?? 'Unknown user'
+
               const reporterName = reporter?.username
                 ? `@${reporter.username}`
                 : reporter?.display_name ?? 'Unknown reporter'
@@ -484,6 +456,7 @@ const banUser = async (userId: string | null) => {
                         <p className="text-sm font-semibold text-white">
                           Reported message
                         </p>
+
                         <span
                           className={`text-[10px] px-2 py-0.5 rounded-full border ${
                             report.status === 'open'
@@ -503,7 +476,12 @@ const banUser = async (userId: string | null) => {
                     </div>
 
                     <button
-                      onClick={() => setReportStatus(report.id, report.status === 'dismissed' ? 'open' : 'dismissed')}
+                      onClick={() =>
+                        setReportStatus(
+                          report.id,
+                          report.status === 'dismissed' ? 'open' : 'dismissed'
+                        )
+                      }
                       disabled={actionLoading === report.id}
                       className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
                     >
