@@ -285,8 +285,7 @@ const handleReact = async (messageId: number, emoji: string) => {
       })
   }
 
-  setCooldownMsg('Reaction saved!')
-  setTimeout(() => setCooldownMsg(''), 1000)
+  await loadReactions()
 }
 
   const handleReport = async () => {
