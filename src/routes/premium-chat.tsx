@@ -89,6 +89,32 @@ function PremiumChatPage() {
     loadProfileAndAccess().catch(() => setIsPremium(false))
   }, [user])
 
+  const awardXp = async () => {
+    if (!user) return
+
+    const currentXp = myProfile?.total_xp ?? 0
+    const currentMessages = myProfile?.message_count ?? 0
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        total_xp: currentXp + 10,
+        message_count: currentMessages + 1,
+      })
+      .eq('id', user.id)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('XP update error:', error)
+      setCooldownMsg(`XP update failed: ${error.message}`)
+      setTimeout(() => setCooldownMsg(''), 3000)
+      return
+    }
+
+    if (data) setMyProfile(data)
+  }
+
   useEffect(() => {
     if (!user || isPremium !== true) return
 
@@ -179,6 +205,7 @@ function PremiumChatPage() {
       setInput('')
       setReplyTo(null)
       markMessageSent()
+      await awardXp()
     }
 
     setSending(false)
