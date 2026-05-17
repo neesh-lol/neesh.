@@ -93,13 +93,41 @@ function FriendsPage() {
       .catch(() => {})
   }, [user])
 
-  const searchUsers = async () => {
-    if (query.trim().length < 2) return
-    setSearching(true)
-    const res = await fetch(`/api/friends?action=search&q=${encodeURIComponent(query.trim())}`)
-    if (res.ok) setResults(await res.json())
+const searchUsers = async () => {
+  if (!user || query.trim().length < 2) return
+
+  setSearching(true)
+
+  const q = query.trim().toLowerCase()
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
+    .neq('id', user.id)
+    .limit(20)
+
+  if (error) {
+    console.error('User search error:', error)
+    setResults([])
     setSearching(false)
+    return
   }
+
+  const mapped: UserResult[] = (data ?? []).map((p: any) => ({
+    id: p.id,
+    displayName: p.display_name ?? 'User',
+    username: p.username ?? null,
+    bio: p.bio ?? '',
+    avatarUrl: p.avatar_url ?? '',
+    interests: p.interests ?? [],
+    score: 0,
+    totalXp: p.total_xp ?? 0,
+  }))
+
+  setResults(mapped)
+  setSearching(false)
+}
 
   useEffect(() => {
     const t = setTimeout(() => {
