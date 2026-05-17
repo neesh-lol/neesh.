@@ -27,6 +27,8 @@ type DbMessage = {
   created_at: string
 }
 
+type ReactionMap = Record<string, Array<{ emoji: string; userId: string; displayName: string }>>
+
 function toChatMessage(row: DbMessage): ChatMessageData {
   return {
     id: row.id as any,
@@ -44,10 +46,7 @@ function CommunityPage() {
   const navigate = useNavigate()
 
   const [messages, setMessages] = useState<ChatMessageData[]>([])
-  const [reactions, setReactions] = useState<
-  Record<string, Array<{ emoji: string; userId: string; displayName: string }>>
->({})
-  const [reactions, setReactions] = useState<Record<string, Array<{ emoji: string; userId: string; displayName: string }>>>({})
+  const [reactions, setReactions] = useState<ReactionMap>({})
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [replyTo, setReplyTo] = useState<ChatMessageData | null>(null)
@@ -69,6 +68,32 @@ function CommunityPage() {
   useEffect(() => {
     setMutedUsers(getMutedUsers())
   }, [])
+
+  const loadReactions = async () => {
+    const { data, error } = await supabase
+      .from('message_reactions')
+      .select('*')
+      .eq('message_type', 'community')
+
+    if (error) {
+      console.error('Reaction load error:', error)
+      return
+    }
+
+    const grouped: ReactionMap = {}
+
+    for (const r of data ?? []) {
+      const key = String(r.message_id)
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push({
+        emoji: r.emoji,
+        userId: r.user_id,
+        displayName: r.display_name ?? 'User',
+      })
+    }
+
+    setReactions(grouped)
+  }
 
   useEffect(() => {
     if (!user) return
@@ -108,9 +133,9 @@ function CommunityPage() {
         console.error('Community messages load error:', error)
         return
       }
-      await loadReactions()
 
       setMessages((data ?? []).map(toChatMessage))
+      await loadReactions()
     }
 
     loadMessages()
@@ -170,35 +195,9 @@ function CommunityPage() {
       return
     }
 
-    if (data) {
-      setMyProfile(data)
-    }
-  }
-const loadReactions = async () => {
-  const { data, error } = await supabase
-    .from('message_reactions')
-    .select('*')
-    .eq('message_type', 'community')
-
-  if (error) {
-    console.error('Reaction load error:', error)
-    return
+    if (data) setMyProfile(data)
   }
 
-  const grouped: Record<string, Array<{ emoji: string; userId: string; displayName: string }>> = {}
-
-  for (const r of data ?? []) {
-    const key = String(r.message_id)
-    if (!grouped[key]) grouped[key] = []
-    grouped[key].push({
-      emoji: r.emoji,
-      userId: r.user_id,
-      displayName: r.display_name ?? 'User',
-    })
-  }
-
-  setReactions(grouped)
-}
   const send = async () => {
     if (!user || !input.trim() || sending) return
 
@@ -217,17 +216,15 @@ const loadReactions = async () => {
 
     setSending(true)
 
-    const insertRow = {
-      user_id: user.id,
-      display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
-      avatar_url: myProfile?.avatar_url ?? '',
-      content: input.trim(),
-      reply_to_id: replyTo?.id ? String(replyTo.id) : null,
-    }
-
     const { data, error } = await supabase
       .from('community_messages')
-      .insert(insertRow)
+      .insert({
+        user_id: user.id,
+        display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
+        avatar_url: myProfile?.avatar_url ?? '',
+        content: input.trim(),
+        reply_to_id: replyTo?.id ? String(replyTo.id) : null,
+      })
       .select()
       .single()
 
@@ -252,41 +249,37 @@ const loadReactions = async () => {
     setSending(false)
   }
 
-const handleReact = async (messageId: number, emoji: string) => {
-  if (!user) return
+  const handleReact = async (messageId: number, emoji: string) => {
+    if (!user) return
 
-  const { data: existing } = await supabase
-    .from('message_reactions')
-    .select('id')
-    .eq('message_type', 'community')
-    .eq('message_id', String(messageId))
-    .eq('user_id', user.id)
-    .eq('emoji', emoji)
-    .maybeSingle()
+    const { data: existing } = await supabase
+      .from('message_reactions')
+      .select('id')
+      .eq('message_type', 'community')
+      .eq('message_id', String(messageId))
+      .eq('user_id', user.id)
+      .eq('emoji', emoji)
+      .maybeSingle()
 
-  if (existing) {
-    await supabase
-      .from('message_reactions')
-      .delete()
-      .eq('id', existing.id)
-  } else {
-    await supabase
-      .from('message_reactions')
-      .insert({
-        message_type: 'community',
-        message_id: String(messageId),
-        user_id: user.id,
-        display_name:
-          myProfile?.display_name ??
-          user.name ??
-          user.email ??
-          'User',
-        emoji,
-      })
+    if (existing) {
+      await supabase
+        .from('message_reactions')
+        .delete()
+        .eq('id', existing.id)
+    } else {
+      await supabase
+        .from('message_reactions')
+        .insert({
+          message_type: 'community',
+          message_id: String(messageId),
+          user_id: user.id,
+          display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
+          emoji,
+        })
+    }
+
+    await loadReactions()
   }
-
-  await loadReactions()
-}
 
   const handleReport = async () => {
     alert('Reports are being rebuilt for Supabase.')
@@ -350,7 +343,7 @@ const handleReact = async (messageId: number, emoji: string) => {
               grouped={grouped}
               currentUserId={user.id}
               messageType="community"
-              reactions={[]}
+              reactions={reactions[String(msg.id)] ?? []}
               replyTarget={replyTarget}
               isMuted={mutedUsers.has(msg.userId)}
               isFounder={myProfile?.username === 'ceo' && msg.userId === user.id}
