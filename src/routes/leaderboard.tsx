@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
+import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 import { Trophy, Flame } from 'lucide-react'
 import { VerifiedBadge, FOUNDER_USERNAME } from '@/components/VerifiedBadge'
@@ -9,7 +10,7 @@ export const Route = createFileRoute('/leaderboard')({
 })
 
 interface LeaderEntry {
-  id: number
+  id: string
   netlifyId: string
   displayName: string
   username: string | null
@@ -43,9 +44,53 @@ function LeaderboardPage() {
 
   useEffect(() => {
     if (!user) return
-    fetch('/api/leaderboard')
-      .then((r) => r.json())
-      .then((data) => { setEntries(data); setLoading(false) })
+
+    async function loadLeaderboard() {
+      setLoading(true)
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select(`
+          id,
+          display_name,
+          username,
+          avatar_url,
+          interests,
+          message_count,
+          total_xp,
+          current_streak,
+          is_premium,
+          is_founder_override
+        `)
+        .order('total_xp', { ascending: false })
+        .limit(100)
+
+      if (error) {
+        console.error('Leaderboard load error:', error)
+        setEntries([])
+        setLoading(false)
+        return
+      }
+
+      const mapped: LeaderEntry[] = (data ?? []).map((p: any) => ({
+        id: p.id,
+        netlifyId: p.id,
+        displayName: p.display_name ?? 'User',
+        username: p.username ?? null,
+        avatarUrl: p.avatar_url ?? '',
+        interests: p.interests ?? [],
+        messageCount: p.message_count ?? 0,
+        totalXp: p.total_xp ?? 0,
+        currentStreak: p.current_streak ?? 0,
+        isPremium: p.is_premium ?? false,
+        isFounderOverride: p.is_founder_override ?? false,
+      }))
+
+      setEntries(mapped)
+      setLoading(false)
+    }
+
+    loadLeaderboard()
   }, [user])
 
   if (!ready || !user) return null
@@ -72,9 +117,11 @@ function LeaderboardPage() {
             <div className="w-5 h-5 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
           </div>
         )}
+
         {!loading && entries.length === 0 && (
           <p className="text-zinc-600 text-sm text-center mt-20">No entries yet. Start chatting to rank up!</p>
         )}
+
         {entries.map((entry, i) => (
           <div
             key={entry.id}
@@ -83,7 +130,9 @@ function LeaderboardPage() {
             <div className="w-8 flex items-center justify-center flex-shrink-0">
               {rankIcon(i)}
             </div>
+
             <Avatar name={entry.displayName} url={entry.avatarUrl || undefined} />
+
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">
                 {entry.displayName}
@@ -96,12 +145,14 @@ function LeaderboardPage() {
                   <span className="ml-2 text-xs text-zinc-500">(you)</span>
                 )}
               </p>
+
               <div className="flex items-center gap-3 mt-0.5">
                 {entry.interests && entry.interests.length > 0 && (
                   <span className="text-xs text-zinc-600 truncate">
-                    {(entry.interests as string[]).slice(0, 3).map((t) => `#${t}`).join(' ')}
+                    {entry.interests.slice(0, 3).map((t) => `#${t}`).join(' ')}
                   </span>
                 )}
+
                 {entry.currentStreak > 0 && (
                   <span className="text-xs text-orange-400 flex items-center gap-0.5 flex-shrink-0">
                     <Flame size={10} /> {entry.currentStreak}d
@@ -109,6 +160,7 @@ function LeaderboardPage() {
                 )}
               </div>
             </div>
+
             <div className="text-right flex-shrink-0">
               <p className="text-sm font-semibold text-yellow-400">{entry.totalXp.toLocaleString()} XP</p>
               <p className="text-xs text-zinc-600">{entry.messageCount} msgs</p>
