@@ -27,6 +27,25 @@ interface ProfileData {
   isFounderOverride?: boolean
 }
 
+interface PresenceData {
+  status: string
+  lastSeen: string | null
+}
+
+function formatLastSeen(lastSeen: string | null) {
+  if (!lastSeen) return 'Offline'
+
+  const diffMs = Date.now() - new Date(lastSeen).getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMin / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffMin < 1) return 'Active just now'
+  if (diffMin < 60) return `Active ${diffMin}m ago`
+  if (diffHours < 24) return `Active ${diffHours}h ago`
+  return `Active ${diffDays}d ago`
+}
+
 export function UserPopup({
   userId,
   displayName,
@@ -37,11 +56,37 @@ export function UserPopup({
   onViewProfile,
 }: UserPopupProps) {
   const [profile, setProfile] = useState<ProfileData | null>(null)
+  const [presence, setPresence] = useState<PresenceData>({ status: 'offline', lastSeen: null })
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [isFollowing, setIsFollowing] = useState(false)
   const [followLoading, setFollowLoading] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+
+  const loadPresence = async () => {
+    const { data, error } = await supabase
+      .from('user_presence')
+      .select('status,last_seen,updated_at')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Presence load error:', error)
+      setPresence({ status: 'offline', lastSeen: null })
+      return
+    }
+
+    const lastSeen = data?.last_seen ?? data?.updated_at ?? null
+    const isFresh =
+      data?.status === 'online' &&
+      lastSeen &&
+      Date.now() - new Date(lastSeen).getTime() < 90000
+
+    setPresence({
+      status: isFresh ? 'online' : 'offline',
+      lastSeen,
+    })
+  }
 
   const loadProfile = async () => {
     setLoading(true)
@@ -100,12 +145,40 @@ export function UserPopup({
       isFounderOverride: p.is_founder_override ?? false,
     })
 
+    await loadPresence()
     setLoading(false)
   }
 
   useEffect(() => {
     loadProfile()
   }, [userId, currentUserId])
+
+  useEffect(() => {
+    if (!userId) return
+
+    const channel = supabase
+      .channel(`user_popup_presence_${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_presence',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          loadPresence()
+        }
+      )
+      .subscribe()
+
+    const interval = setInterval(loadPresence, 30000)
+
+    return () => {
+      supabase.removeChannel(channel)
+      clearInterval(interval)
+    }
+  }, [userId])
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -210,6 +283,9 @@ export function UserPopup({
     zIndex: 100,
   }
 
+  const isOnline = presence.status === 'online'
+  const statusText = isOnline ? 'Online' : formatLastSeen(presence.lastSeen)
+
   return (
     <div
       ref={ref}
@@ -224,17 +300,25 @@ export function UserPopup({
         <>
           <div className="px-4 pt-4 pb-3">
             <div className="flex items-center gap-3">
-              {profile.avatarUrl || avatarUrl ? (
-                <img
-                  src={profile.avatarUrl || avatarUrl}
-                  alt=""
-                  className="w-10 h-10 rounded-full object-cover"
+              <div className="relative flex-shrink-0">
+                {profile.avatarUrl || avatarUrl ? (
+                  <img
+                    src={profile.avatarUrl || avatarUrl}
+                    alt=""
+                    className="w-10 h-10 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-medium text-white">
+                    {profile.displayName.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+
+                <span
+                  className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-zinc-900 ${
+                    isOnline ? 'bg-emerald-400' : 'bg-zinc-600'
+                  }`}
                 />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-medium text-white">
-                  {profile.displayName.slice(0, 2).toUpperCase()}
-                </div>
-              )}
+              </div>
 
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
@@ -250,6 +334,10 @@ export function UserPopup({
                 {profile.username && (
                   <p className="text-xs text-zinc-500">@{profile.username}</p>
                 )}
+
+                <p className={`text-[11px] mt-0.5 ${isOnline ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                  {statusText}
+                </p>
               </div>
 
               <button onClick={onClose} className="text-zinc-500 hover:text-white p-1">
