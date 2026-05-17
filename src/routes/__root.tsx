@@ -1,5 +1,5 @@
 import { HeadContent, Link, Outlet, Scripts, createRootRoute, useNavigate, useLocation } from '@tanstack/react-router'
-import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown } from 'lucide-react'
+import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown, Bell } from 'lucide-react'
 import { IdentityProvider, useIdentity } from '../lib/identity-context'
 import { CallbackHandler } from '../components/CallbackHandler'
 import { supabase } from '../lib/supabase'
@@ -44,7 +44,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 const PUBLIC_PATHS = ['/', '/signin', '/signup', '/login', '/terms', '/privacy', '/community-guidelines', '/refund-policy']
 const AUTH_REDIRECT_PATHS = ['/', '/signin', '/signup', '/login']
 
-type ToastKind = 'message' | 'friend' | 'success'
+type ToastKind = 'message' | 'friend' | 'success' | 'notification'
 
 type AppToast = {
   id: string
@@ -125,15 +125,17 @@ function ToastStack({
                   ? 'bg-blue-500/10 text-blue-400'
                   : toast.kind === 'success'
                     ? 'bg-emerald-500/10 text-emerald-400'
-                    : 'bg-purple-500/10 text-purple-400'
+                    : toast.kind === 'friend'
+                      ? 'bg-purple-500/10 text-purple-400'
+                      : 'bg-zinc-500/10 text-zinc-300'
               }`}
             >
-              {toast.kind === 'message' ? <Mail size={16} /> : toast.kind === 'success' ? <Users size={16} /> : <User size={16} />}
+              {toast.kind === 'message' ? <Mail size={16} /> : toast.kind === 'success' ? <Users size={16} /> : toast.kind === 'friend' ? <User size={16} /> : <Bell size={16} />}
             </div>
 
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-white truncate">{toast.title}</p>
-              <p className="text-xs text-zinc-400 mt-0.5 line-clamp-2">{toast.body}</p>
+              <p className="text-xs text-zinc-400 mt-0.5 overflow-hidden">{toast.body}</p>
             </div>
 
             <span
@@ -159,6 +161,7 @@ function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
   const [unreadDms, setUnreadDms] = useState(0)
+  const [unreadNotifications, setUnreadNotifications] = useState(0)
   const [toasts, setToasts] = useState<AppToast[]>([])
 
   const pathname = location.pathname
@@ -171,13 +174,7 @@ function AppShell() {
   const pushToast = (toast: Omit<AppToast, 'id'>) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
-    setToasts((prev) => [
-      {
-        ...toast,
-        id,
-      },
-      ...prev,
-    ].slice(0, 4))
+    setToasts((prev) => [{ ...toast, id }, ...prev].slice(0, 4))
 
     setTimeout(() => {
       removeToast(id)
@@ -276,6 +273,18 @@ function AppShell() {
         } else {
           setUnreadDms(unreadMessages ?? 0)
         }
+
+        const { count: unreadNotifs, error: notifError } = await supabase
+          .from('notifications')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .is('read_at', null)
+
+        if (notifError) {
+          console.error('Unread notification count error:', notifError)
+        } else {
+          setUnreadNotifications(unreadNotifs ?? 0)
+        }
       } catch (error) {
         console.error('Notification count load error:', error)
       }
@@ -291,6 +300,37 @@ function AppShell() {
       if (!data) return 'Someone'
 
       return data.username ? `@${data.username}` : data.display_name ?? 'Someone'
+    }
+
+    const saveNotification = async ({
+      userId,
+      actorId,
+      type,
+      title,
+      body,
+      link,
+    }: {
+      userId: string
+      actorId?: string | null
+      type: string
+      title: string
+      body: string
+      link: string
+    }) => {
+      const { error } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: userId,
+          actor_id: actorId ?? null,
+          type,
+          title,
+          body,
+          link,
+        })
+
+      if (error) {
+        console.error('Save notification error:', error)
+      }
     }
 
     loadNotificationCounts()
@@ -320,13 +360,26 @@ function AppShell() {
             row.status === 'pending'
           ) {
             const name = await getProfileLabel(row.requester_id)
+            const title = 'New friend request'
+            const body = `${name} sent you a friend request.`
 
             pushToast({
               kind: 'friend',
-              title: 'New friend request',
-              body: `${name} sent you a friend request.`,
+              title,
+              body,
               to: '/friends',
             })
+
+            await saveNotification({
+              userId: user.id,
+              actorId: row.requester_id,
+              type: 'friend_request',
+              title,
+              body,
+              link: '/friends',
+            })
+
+            loadNotificationCounts()
           }
 
           if (
@@ -336,13 +389,26 @@ function AppShell() {
             oldRow?.status !== 'accepted'
           ) {
             const name = await getProfileLabel(row.receiver_id)
+            const title = 'Friend request accepted'
+            const body = `${name} accepted your friend request.`
 
             pushToast({
               kind: 'success',
-              title: 'Friend request accepted',
-              body: `${name} accepted your friend request.`,
+              title,
+              body,
               to: '/friends',
             })
+
+            await saveNotification({
+              userId: user.id,
+              actorId: row.receiver_id,
+              type: 'friend_accepted',
+              title,
+              body,
+              link: '/friends',
+            })
+
+            loadNotificationCounts()
           }
         }
       )
@@ -364,14 +430,39 @@ function AppShell() {
             row?.sender_id !== user.id
           ) {
             const name = await getProfileLabel(row.sender_id)
+            const title = `New message from ${name}`
+            const body = row.content ?? 'Sent you a message.'
 
             pushToast({
               kind: 'message',
-              title: `New message from ${name}`,
-              body: row.content ?? 'Sent you a message.',
+              title,
+              body,
               to: '/messages',
             })
+
+            await saveNotification({
+              userId: user.id,
+              actorId: row.sender_id,
+              type: 'direct_message',
+              title,
+              body,
+              link: '/messages',
+            })
+
+            loadNotificationCounts()
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          loadNotificationCounts()
         }
       )
       .subscribe()
@@ -499,7 +590,13 @@ function AppShell() {
                 <X size={18} />
               </button>
             </div>
-            <SidebarContent logout={logout} onNavClick={closeMobile} pendingFriendRequests={pendingCount} unreadMessages={unreadDms} />
+            <SidebarContent
+              logout={logout}
+              onNavClick={closeMobile}
+              pendingFriendRequests={pendingCount}
+              unreadMessages={unreadDms}
+              unreadNotifications={unreadNotifications}
+            />
           </aside>
         </div>
       )}
@@ -508,7 +605,12 @@ function AppShell() {
         <div className="px-4 py-5 border-b border-zinc-800">
           <img src="/neesh-logo.png" alt="neesh" className="h-16" />
         </div>
-        <SidebarContent logout={logout} pendingFriendRequests={pendingCount} unreadMessages={unreadDms} />
+        <SidebarContent
+          logout={logout}
+          pendingFriendRequests={pendingCount}
+          unreadMessages={unreadDms}
+          unreadNotifications={unreadNotifications}
+        />
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -523,11 +625,13 @@ function SidebarContent({
   onNavClick,
   pendingFriendRequests,
   unreadMessages,
+  unreadNotifications,
 }: {
   logout: () => Promise<void>
   onNavClick?: () => void
   pendingFriendRequests?: number
   unreadMessages?: number
+  unreadNotifications?: number
 }) {
   return (
     <>
@@ -536,6 +640,7 @@ function SidebarContent({
         <NavItem to="/chat" icon={Hash} label="Interest Chat" onClick={onNavClick} />
         <NavItem to="/community" icon={MessageSquare} label="Community" onClick={onNavClick} />
         <NavItem to="/messages" icon={Mail} label="Messages" onClick={onNavClick} badge={unreadMessages} />
+        <NavItem to="/notifications" icon={Bell} label="Notifications" onClick={onNavClick} badge={unreadNotifications} />
         <NavItem to="/challenges" icon={Target} label="Challenges" onClick={onNavClick} />
         <NavItem to="/friends" icon={Users} label="Friends" onClick={onNavClick} badge={pendingFriendRequests} />
         <NavItem to="/leaderboard" icon={Trophy} label="Leaderboard" onClick={onNavClick} />
