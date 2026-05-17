@@ -59,7 +59,19 @@ function monthKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
-function NavItem({ to, icon: Icon, label, onClick, badge }: { to: string; icon: React.ElementType; label: string; onClick?: () => void; badge?: number }) {
+function NavItem({
+  to,
+  icon: Icon,
+  label,
+  onClick,
+  badge,
+}: {
+  to: string
+  icon: React.ElementType
+  label: string
+  onClick?: () => void
+  badge?: number
+}) {
   return (
     <Link
       to={to}
@@ -87,39 +99,126 @@ function AppShell() {
   const pathname = location.pathname
   const isPublicPath = PUBLIC_PATHS.includes(pathname)
 
-useEffect(() => {
-  if (!user) return
+  useEffect(() => {
+    if (!user) return
 
-  const loadNotificationCounts = async () => {
-    try {
-      const friendsRes = await fetch('/api/friends')
-      if (friendsRes.ok) {
-        const friendsData = await friendsRes.json()
-        setPendingCount((friendsData.pendingReceived ?? []).length)
+    const markOnline = async () => {
+      const now = new Date().toISOString()
+
+      const { error } = await supabase
+        .from('user_presence')
+        .upsert({
+          user_id: user.id,
+          status: 'online',
+          last_seen: now,
+          updated_at: now,
+        })
+
+      if (error) {
+        console.error('Presence online error:', error)
       }
-
-      const messagesRes = await fetch('/api/direct-messages')
-      if (messagesRes.ok) {
-        const messagesData = await messagesRes.json()
-
-        const totalUnread = (messagesData.conversations ?? []).reduce(
-          (sum: number, conv: any) => sum + (conv.unreadCount ?? 0),
-          0
-        )
-
-        setUnreadDms(totalUnread)
-      }
-    } catch (error) {
-      console.error('Notification count load error:', error)
     }
-  }
 
-  loadNotificationCounts()
+    const markOffline = async () => {
+      const now = new Date().toISOString()
 
-  const interval = setInterval(loadNotificationCounts, 10000)
+      await supabase
+        .from('user_presence')
+        .upsert({
+          user_id: user.id,
+          status: 'offline',
+          last_seen: now,
+          updated_at: now,
+        })
+    }
 
-  return () => clearInterval(interval)
-}, [user])
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        markOnline()
+      } else {
+        markOffline()
+      }
+    }
+
+    markOnline()
+
+    const interval = setInterval(markOnline, 30000)
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('beforeunload', markOffline)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('beforeunload', markOffline)
+      markOffline()
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+
+    const loadNotificationCounts = async () => {
+      try {
+        const { count: pendingFriends, error: friendsError } = await supabase
+          .from('friendships')
+          .select('*', { count: 'exact', head: true })
+          .eq('receiver_id', user.id)
+          .eq('status', 'pending')
+
+        if (friendsError) {
+          console.error('Pending friend count error:', friendsError)
+        } else {
+          setPendingCount(pendingFriends ?? 0)
+        }
+
+        const { count: unreadMessages, error: unreadError } = await supabase
+          .from('direct_messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('receiver_id', user.id)
+          .is('read_at', null)
+
+        if (unreadError) {
+          console.error('Unread DM count error:', unreadError)
+        } else {
+          setUnreadDms(unreadMessages ?? 0)
+        }
+      } catch (error) {
+        console.error('Notification count load error:', error)
+      }
+    }
+
+    loadNotificationCounts()
+
+    const interval = setInterval(loadNotificationCounts, 10000)
+
+    const channel = supabase
+      .channel(`root_notifications_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'friendships',
+        },
+        () => loadNotificationCounts()
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'direct_messages',
+        },
+        () => loadNotificationCounts()
+      )
+      .subscribe()
+
+    return () => {
+      clearInterval(interval)
+      supabase.removeChannel(channel)
+    }
+  }, [user])
 
   useEffect(() => {
     if (!user) return
@@ -210,6 +309,7 @@ useEffect(() => {
     if (user && AUTH_REDIRECT_PATHS.includes(pathname)) {
       return <NavigateTo to="/home" />
     }
+
     return <Outlet />
   }
 
@@ -254,7 +354,17 @@ useEffect(() => {
   )
 }
 
-function SidebarContent({ logout, onNavClick, pendingFriendRequests, unreadMessages }: { logout: () => Promise<void>; onNavClick?: () => void; pendingFriendRequests?: number; unreadMessages?: number }) {
+function SidebarContent({
+  logout,
+  onNavClick,
+  pendingFriendRequests,
+  unreadMessages,
+}: {
+  logout: () => Promise<void>
+  onNavClick?: () => void
+  pendingFriendRequests?: number
+  unreadMessages?: number
+}) {
   return (
     <>
       <nav className="flex-1 p-3 space-y-1">
@@ -275,7 +385,10 @@ function SidebarContent({ logout, onNavClick, pendingFriendRequests, unreadMessa
         <NavItem to="/settings" icon={Settings} label="Settings" onClick={onNavClick} />
 
         <button
-          onClick={() => { logout(); onNavClick?.() }}
+          onClick={() => {
+            logout()
+            onNavClick?.()
+          }}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors text-left"
         >
           Sign out
@@ -283,10 +396,18 @@ function SidebarContent({ logout, onNavClick, pendingFriendRequests, unreadMessa
       </div>
 
       <div className="px-4 py-3 border-t border-zinc-800 flex flex-wrap gap-x-3 gap-y-1">
-        <Link to="/terms" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">Terms</Link>
-        <Link to="/privacy" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">Privacy</Link>
-        <Link to="/refund-policy" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">Refund Policy</Link>
-        <Link to="/community-guidelines" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">Guidelines</Link>
+        <Link to="/terms" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
+          Terms
+        </Link>
+        <Link to="/privacy" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
+          Privacy
+        </Link>
+        <Link to="/refund-policy" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
+          Refund Policy
+        </Link>
+        <Link to="/community-guidelines" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
+          Guidelines
+        </Link>
       </div>
     </>
   )
