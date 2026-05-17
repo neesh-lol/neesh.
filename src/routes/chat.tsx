@@ -443,7 +443,7 @@ function ChatPage() {
               grouped={grouped}
               currentUserId={user.id}
               messageType="chat"
-              reactions={[]}
+              reactions={reactions[String(msg.id)] ?? []}
               replyTarget={replyTarget}
               isMuted={mutedUsers.has(msg.userId)}
               isFounder={myProfile?.username === 'ceo' && msg.userId === user.id}
