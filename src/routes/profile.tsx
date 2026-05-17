@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
+import { supabase } from '@/lib/supabase'
 import { useEffect, useState, useRef } from 'react'
 import { Save, Flame, Zap, Trophy, AlertCircle, Camera, X, Eye, Users, UserPlus, Crown, Image, Palette } from 'lucide-react'
 import { VerifiedBadge, FOUNDER_USERNAME } from '@/components/VerifiedBadge'
@@ -28,7 +29,7 @@ const GRADIENT_PRESETS = [
 ]
 
 interface Profile {
-  id?: number
+  id?: string
   netlifyId?: string
   displayName: string
   username: string | null
@@ -63,6 +64,7 @@ function DefaultAvatar({ size = 64 }: { size?: number }) {
 function ProfilePage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
+
   const [profile, setProfile] = useState<Profile>({
     displayName: '',
     username: null,
@@ -74,6 +76,7 @@ function ProfilePage() {
     profileColorSecondary: '',
     interests: [],
   })
+
   const [usernameInput, setUsernameInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -86,8 +89,73 @@ function ProfilePage() {
   const [followersList, setFollowersList] = useState<any[]>([])
   const [followingList, setFollowingList] = useState<any[]>([])
   const [streakInfo, setStreakInfo] = useState<{ freezesRemaining: number } | null>(null)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bannerInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (ready && !user) navigate({ to: '/signin' })
+  }, [ready, user, navigate])
+
+  useEffect(() => {
+    if (!user) return
+
+    async function loadProfile() {
+      setLoading(true)
+      setError('')
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (error) {
+        console.error('Profile load error:', error)
+        setError(error.message)
+      }
+
+      if (data) {
+        const loadedProfile: Profile = {
+          id: data.id,
+          netlifyId: data.id,
+          displayName: data.display_name ?? user.name ?? user.email ?? '',
+          username: data.username ?? null,
+          bio: data.bio ?? '',
+          avatarUrl: data.avatar_url ?? '',
+          bannerUrl: data.banner_url ?? '',
+          profileTheme: data.profile_theme ?? 'default',
+          profileColorPrimary: data.profile_color_primary ?? '',
+          profileColorSecondary: data.profile_color_secondary ?? '',
+          interests: data.interests ?? [],
+          messageCount: data.message_count ?? 0,
+          totalXp: data.total_xp ?? 0,
+          currentStreak: data.current_streak ?? 0,
+          longestStreak: data.longest_streak ?? 0,
+          lastUsernameChange: data.last_username_change ?? null,
+          weeklyMatchOptIn: data.weekly_match_opt_in ?? false,
+          isPremium: data.is_premium ?? false,
+          isFounderOverride: data.is_founder_override ?? false,
+          profileViews: data.profile_views ?? 0,
+        }
+
+        setProfile(loadedProfile)
+        setUsernameInput(data.username ?? '')
+        setStreakInfo({ freezesRemaining: data.streak_freezes_remaining ?? 0 })
+      } else {
+        setProfile((p) => ({
+          ...p,
+          id: user.id,
+          netlifyId: user.id,
+          displayName: user.name ?? user.email ?? '',
+        }))
+      }
+
+      setLoading(false)
+    }
+
+    loadProfile()
+  }, [user])
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -100,7 +168,7 @@ function ProfilePage() {
       }
       const reader = new FileReader()
       reader.onload = () => {
-        setProfile(p => ({ ...p, avatarUrl: reader.result as string }))
+        setProfile((p) => ({ ...p, avatarUrl: reader.result as string }))
       }
       reader.readAsDataURL(file)
       return
@@ -110,6 +178,7 @@ function ProfilePage() {
       setError('Image must be under 2MB')
       return
     }
+
     const reader = new FileReader()
     reader.onload = () => {
       const img = new window.Image()
@@ -123,7 +192,7 @@ function ProfilePage() {
         const sx = (img.width - min) / 2
         const sy = (img.height - min) / 2
         ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size)
-        setProfile(p => ({ ...p, avatarUrl: canvas.toDataURL('image/jpeg', 0.8) }))
+        setProfile((p) => ({ ...p, avatarUrl: canvas.toDataURL('image/jpeg', 0.8) }))
       }
       img.src = reader.result as string
     }
@@ -133,78 +202,27 @@ function ProfilePage() {
   const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !profile.isPremium) return
+
     if (file.size > 5 * 1024 * 1024) {
       setError('Banner must be under 5MB')
       return
     }
+
     const reader = new FileReader()
     reader.onload = () => {
-      setProfile(p => ({ ...p, bannerUrl: reader.result as string }))
+      setProfile((p) => ({ ...p, bannerUrl: reader.result as string }))
     }
     reader.readAsDataURL(file)
   }
 
-  useEffect(() => {
-    if (ready && !user) navigate({ to: '/signin' })
-  }, [ready, user, navigate])
-
-  useEffect(() => {
-    if (!user) return
-    fetch('/api/profile').then(async (r) => {
-      if (r.ok) {
-        const data = await r.json()
-        setProfile({
-          displayName: data.displayName ?? user.name ?? '',
-          username: data.username ?? null,
-          bio: data.bio ?? '',
-          avatarUrl: data.avatarUrl ?? '',
-          bannerUrl: data.bannerUrl ?? '',
-          profileTheme: data.profileTheme ?? 'default',
-          profileColorPrimary: data.profileColorPrimary ?? '',
-          profileColorSecondary: data.profileColorSecondary ?? '',
-          interests: data.interests ?? [],
-          messageCount: data.messageCount,
-          totalXp: data.totalXp,
-          currentStreak: data.currentStreak,
-          longestStreak: data.longestStreak,
-          lastUsernameChange: data.lastUsernameChange,
-          weeklyMatchOptIn: data.weeklyMatchOptIn ?? false,
-          isPremium: data.isPremium ?? false,
-          isFounderOverride: data.isFounderOverride ?? false,
-          profileViews: data.profileViews ?? 0,
-          netlifyId: data.netlifyId,
-        })
-        setUsernameInput(data.username ?? '')
-
-        if (data.netlifyId) {
-          fetch(`/api/follows?action=counts&userId=${data.netlifyId}`)
-            .then(r => r.ok ? r.json() : null)
-            .then(d => { if (d) { setFollowerCount(d.followers); setFollowingCount(d.following) } })
-            .catch(() => {})
-        }
-      } else {
-        setProfile((p) => ({ ...p, displayName: user.name ?? user.email ?? '' }))
-      }
-      setLoading(false)
-    })
-    fetch('/api/streak-protection')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setStreakInfo(d) })
-      .catch(() => {})
-  }, [user])
-
   const loadFollowers = async () => {
-    if (!profile.netlifyId) return
-    const res = await fetch(`/api/follows?action=followers&userId=${profile.netlifyId}`)
-    if (res.ok) setFollowersList(await res.json())
+    setFollowersList([])
     setShowFollowers(true)
     setShowFollowing(false)
   }
 
   const loadFollowing = async () => {
-    if (!profile.netlifyId) return
-    const res = await fetch(`/api/follows?action=following&userId=${profile.netlifyId}`)
-    if (res.ok) setFollowingList(await res.json())
+    setFollowingList([])
     setShowFollowing(true)
     setShowFollowers(false)
   }
@@ -234,51 +252,84 @@ function ProfilePage() {
   }
 
   const save = async () => {
+    if (!user) return
+
     setSaving(true)
     setSaved(false)
     setError('')
-    const body: Record<string, any> = {
-      displayName: profile.displayName,
+
+    const usernameChanged = usernameInput !== (profile.username ?? '')
+
+    const updates: any = {
+      id: user.id,
+      display_name: profile.displayName,
+      username: usernameInput || null,
       bio: profile.bio,
-      avatarUrl: profile.avatarUrl,
+      avatar_url: profile.avatarUrl,
+      banner_url: profile.bannerUrl,
+      profile_theme: profile.profileTheme,
+      profile_color_primary: profile.profileColorPrimary,
+      profile_color_secondary: profile.profileColorSecondary,
       interests: profile.interests,
-      weeklyMatchOptIn: profile.weeklyMatchOptIn,
+      weekly_match_opt_in: profile.weeklyMatchOptIn ?? false,
+      total_xp: profile.totalXp ?? 0,
+      current_streak: profile.currentStreak ?? 0,
+      longest_streak: profile.longestStreak ?? 0,
+      message_count: profile.messageCount ?? 0,
+      profile_views: profile.profileViews ?? 0,
+      is_premium: profile.isPremium ?? false,
+      is_founder_override: profile.isFounderOverride ?? false,
+      last_username_change:
+        usernameChanged && canChangeUsername()
+          ? new Date().toISOString()
+          : profile.lastUsernameChange,
     }
-    if (profile.isPremium) {
-      body.bannerUrl = profile.bannerUrl
-      body.profileTheme = profile.profileTheme
-      body.profileColorPrimary = profile.profileColorPrimary
-      body.profileColorSecondary = profile.profileColorSecondary
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert(updates)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Profile save error:', error)
+      setError(error.message || 'Failed to save')
+      setSaving(false)
+      return
     }
-    if (usernameInput !== (profile.username ?? '') && canChangeUsername()) {
-      body.username = usernameInput
-    }
-    const res = await fetch('/api/profile', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      setProfile((p) => ({ ...p, username: data.username, lastUsernameChange: data.lastUsernameChange }))
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    } else {
-      const data = await res.json().catch(() => ({}))
-      setError(data.error || 'Failed to save')
-    }
+
+    setProfile((p) => ({
+      ...p,
+      username: data.username,
+      lastUsernameChange: data.last_username_change,
+      displayName: data.display_name ?? p.displayName,
+      bio: data.bio ?? p.bio,
+      avatarUrl: data.avatar_url ?? p.avatarUrl,
+      bannerUrl: data.banner_url ?? p.bannerUrl,
+      profileTheme: data.profile_theme ?? p.profileTheme,
+      profileColorPrimary: data.profile_color_primary ?? p.profileColorPrimary,
+      profileColorSecondary: data.profile_color_secondary ?? p.profileColorSecondary,
+      interests: data.interests ?? p.interests,
+      weeklyMatchOptIn: data.weekly_match_opt_in ?? p.weeklyMatchOptIn,
+    }))
+
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
     setSaving(false)
   }
 
-  if (!ready || !user || loading) return (
-    <div className="flex items-center justify-center h-full bg-zinc-950">
-      <div className="w-5 h-5 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
-    </div>
-  )
+  if (!ready || !user || loading) {
+    return (
+      <div className="flex items-center justify-center h-full bg-zinc-950">
+        <div className="w-5 h-5 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   const cooldown = usernameCooldownRemaining()
   const isPremium = profile.isPremium || profile.username === FOUNDER_USERNAME || profile.isFounderOverride
   const hasGradient = isPremium && profile.profileColorPrimary && profile.profileColorSecondary
+
   const gradientStyle = hasGradient
     ? { background: `linear-gradient(135deg, ${profile.profileColorPrimary}, ${profile.profileColorSecondary})` }
     : undefined
@@ -376,46 +427,46 @@ function ProfilePage() {
             </div>
           </div>
         ) : (
-        <div className="flex items-center gap-5">
-          <div className="relative">
-            {profile.avatarUrl ? (
-              <img
-                src={profile.avatarUrl}
-                alt="avatar"
-                className="w-16 h-16 rounded-full object-cover ring-2 ring-zinc-800"
+          <div className="flex items-center gap-5">
+            <div className="relative">
+              {profile.avatarUrl ? (
+                <img
+                  src={profile.avatarUrl}
+                  alt="avatar"
+                  className="w-16 h-16 rounded-full object-cover ring-2 ring-zinc-800"
+                />
+              ) : (
+                <DefaultAvatar size={64} />
+              )}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute -bottom-1 -right-1 w-7 h-7 bg-zinc-700 hover:bg-zinc-600 border-2 border-zinc-950 rounded-full flex items-center justify-center transition-colors"
+              >
+                <Camera size={13} className="text-white" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={isPremium ? 'image/*,image/gif' : 'image/*'}
+                onChange={handleAvatarUpload}
+                className="hidden"
               />
-            ) : (
-              <DefaultAvatar size={64} />
-            )}
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="absolute -bottom-1 -right-1 w-7 h-7 bg-zinc-700 hover:bg-zinc-600 border-2 border-zinc-950 rounded-full flex items-center justify-center transition-colors"
-            >
-              <Camera size={13} className="text-white" />
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={isPremium ? 'image/*,image/gif' : 'image/*'}
-              onChange={handleAvatarUpload}
-              className="hidden"
-            />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white flex items-center gap-1.5">
+                {profile.displayName || user.email}
+                <VerifiedBadge
+                  username={profile.username}
+                  isPremium={isPremium}
+                  isFounderOverride={profile.isFounderOverride}
+                  size={16}
+                />
+              </p>
+              {profile.username && <p className="text-xs text-zinc-500">@{profile.username}</p>}
+              <p className="text-xs text-zinc-600">{user.email}</p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white flex items-center gap-1.5">
-              {profile.displayName || user.email}
-              <VerifiedBadge
-                username={profile.username}
-                isPremium={isPremium}
-                isFounderOverride={profile.isFounderOverride}
-                size={16}
-              />
-            </p>
-            {profile.username && <p className="text-xs text-zinc-500">@{profile.username}</p>}
-            <p className="text-xs text-zinc-600">{user.email}</p>
-          </div>
-        </div>
         )}
 
         <div className="grid grid-cols-3 gap-3">
@@ -470,19 +521,12 @@ function ProfilePage() {
             {followersList.length === 0 ? (
               <p className="text-xs text-zinc-600">No followers yet</p>
             ) : followersList.map((f: any) => (
-              <div key={f.netlifyId} className="flex items-center gap-3 py-1.5">
-                {f.avatarUrl ? (
-                  <img src={f.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover" />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-medium text-white">
-                    {f.displayName?.slice(0, 2).toUpperCase()}
-                  </div>
-                )}
+              <div key={f.id} className="flex items-center gap-3 py-1.5">
+                <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-medium text-white">
+                  {f.displayName?.slice(0, 2).toUpperCase()}
+                </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-white truncate flex items-center gap-1">
-                    {f.displayName}
-                    <VerifiedBadge username={f.username} isPremium={f.isPremium} isFounderOverride={f.isFounderOverride} size={12} />
-                  </p>
+                  <p className="text-xs text-white truncate">{f.displayName}</p>
                   {f.username && <p className="text-[10px] text-zinc-500">@{f.username}</p>}
                 </div>
               </div>
@@ -499,19 +543,12 @@ function ProfilePage() {
             {followingList.length === 0 ? (
               <p className="text-xs text-zinc-600">Not following anyone yet</p>
             ) : followingList.map((f: any) => (
-              <div key={f.netlifyId} className="flex items-center gap-3 py-1.5">
-                {f.avatarUrl ? (
-                  <img src={f.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover" />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-medium text-white">
-                    {f.displayName?.slice(0, 2).toUpperCase()}
-                  </div>
-                )}
+              <div key={f.id} className="flex items-center gap-3 py-1.5">
+                <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-[10px] font-medium text-white">
+                  {f.displayName?.slice(0, 2).toUpperCase()}
+                </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-white truncate flex items-center gap-1">
-                    {f.displayName}
-                    <VerifiedBadge username={f.username} isPremium={f.isPremium} isFounderOverride={f.isFounderOverride} size={12} />
-                  </p>
+                  <p className="text-xs text-white truncate">{f.displayName}</p>
                   {f.username && <p className="text-[10px] text-zinc-500">@{f.username}</p>}
                 </div>
               </div>
@@ -529,6 +566,7 @@ function ProfilePage() {
               placeholder="Your display name"
             />
           </div>
+
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">
               Username
@@ -548,6 +586,7 @@ function ProfilePage() {
               />
             </div>
           </div>
+
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Bio</label>
             <textarea
@@ -558,6 +597,7 @@ function ProfilePage() {
               placeholder="Tell people about yourself…"
             />
           </div>
+
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">
               Avatar
@@ -574,7 +614,7 @@ function ProfilePage() {
               {profile.avatarUrl && (
                 <button
                   type="button"
-                  onClick={() => setProfile(p => ({ ...p, avatarUrl: '' }))}
+                  onClick={() => setProfile((p) => ({ ...p, avatarUrl: '' }))}
                   className="flex items-center gap-1 px-3 py-2 text-sm text-red-400 hover:text-red-300 transition-colors"
                 >
                   <X size={14} /> Remove
@@ -609,7 +649,7 @@ function ProfilePage() {
                   {profile.profileColorPrimary && (
                     <button
                       type="button"
-                      onClick={() => setProfile(p => ({ ...p, profileColorPrimary: '', profileColorSecondary: '' }))}
+                      onClick={() => setProfile((p) => ({ ...p, profileColorPrimary: '', profileColorSecondary: '' }))}
                       className="text-[10px] text-zinc-500 hover:text-red-400 transition-colors"
                     >
                       Reset
@@ -617,12 +657,13 @@ function ProfilePage() {
                   )}
                 </div>
               </div>
+
               <div className="grid grid-cols-5 gap-2 mb-3">
                 {GRADIENT_PRESETS.map((preset) => (
                   <button
                     key={preset.name}
                     type="button"
-                    onClick={() => setProfile(p => ({
+                    onClick={() => setProfile((p) => ({
                       ...p,
                       profileColorPrimary: preset.primary,
                       profileColorSecondary: preset.secondary,
@@ -641,48 +682,25 @@ function ProfilePage() {
                   </button>
                 ))}
               </div>
+
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className="block text-[10px] text-zinc-500 mb-1">Primary</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={profile.profileColorPrimary || '#6366f1'}
-                      onChange={(e) => setProfile(p => ({ ...p, profileColorPrimary: e.target.value }))}
-                      className="w-8 h-8 rounded-lg border border-zinc-700 cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded"
-                    />
-                    <input
-                      type="text"
-                      value={profile.profileColorPrimary}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        if (/^#[0-9a-fA-F]{0,6}$/.test(v)) setProfile(p => ({ ...p, profileColorPrimary: v }))
-                      }}
-                      placeholder="#6366f1"
-                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-600 font-mono"
-                    />
-                  </div>
+                  <input
+                    type="color"
+                    value={profile.profileColorPrimary || '#6366f1'}
+                    onChange={(e) => setProfile((p) => ({ ...p, profileColorPrimary: e.target.value }))}
+                    className="w-8 h-8 rounded-lg border border-zinc-700 cursor-pointer bg-transparent"
+                  />
                 </div>
                 <div className="flex-1">
                   <label className="block text-[10px] text-zinc-500 mb-1">Secondary</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={profile.profileColorSecondary || '#06b6d4'}
-                      onChange={(e) => setProfile(p => ({ ...p, profileColorSecondary: e.target.value }))}
-                      className="w-8 h-8 rounded-lg border border-zinc-700 cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded"
-                    />
-                    <input
-                      type="text"
-                      value={profile.profileColorSecondary}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        if (/^#[0-9a-fA-F]{0,6}$/.test(v)) setProfile(p => ({ ...p, profileColorSecondary: v }))
-                      }}
-                      placeholder="#06b6d4"
-                      className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-600 font-mono"
-                    />
-                  </div>
+                  <input
+                    type="color"
+                    value={profile.profileColorSecondary || '#06b6d4'}
+                    onChange={(e) => setProfile((p) => ({ ...p, profileColorSecondary: e.target.value }))}
+                    className="w-8 h-8 rounded-lg border border-zinc-700 cursor-pointer bg-transparent"
+                  />
                 </div>
               </div>
             </div>
