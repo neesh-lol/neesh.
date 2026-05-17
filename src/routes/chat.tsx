@@ -69,7 +69,7 @@ function ChatPage() {
   const [joining, setJoining] = useState(false)
   const [customInterest, setCustomInterest] = useState('')
   const [replyTo, setReplyTo] = useState<ChatMessageData | null>(null)
-  const [typingNames] = useState<string[]>([])
+  const [typingNames, setTypingNames] = useState<string[]>([])
   const [mutedUsers, setMutedUsers] = useState<Set<string>>(new Set())
   const [blockedUsers] = useState<Set<string>>(new Set())
   const [cooldownMsg, setCooldownMsg] = useState('')
@@ -81,6 +81,7 @@ function ChatPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (ready && !user) navigate({ to: '/signin' })
@@ -162,6 +163,25 @@ function ChatPage() {
     }
 
     setReactions(grouped)
+  }
+
+  const sendTypingSignal = async () => {
+    if (!user || !activeRoom) return
+
+    const { error } = await supabase
+      .from('chat_typing')
+      .upsert({
+        chat_type: 'interest',
+        room_id: activeRoom.id,
+        typer_id: user.id,
+        receiver_id: null,
+        display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
+        updated_at: new Date().toISOString(),
+      })
+
+    if (error) {
+      console.error('Interest typing signal error:', error)
+    }
   }
 
   const awardXp = async () => {
@@ -256,6 +276,7 @@ function ChatPage() {
     setRooms((prev) => prev.some((r) => r.id === room!.id) ? prev : [...prev, room!])
     setMessages([])
     setReplyTo(null)
+    setTypingNames([])
     addRecentInterest(interest)
     setRecentInterests(getRecentInterests())
 
@@ -298,8 +319,64 @@ function ChatPage() {
   }, [activeRoom])
 
   useEffect(() => {
+    if (!user || !activeRoom) return
+
+    const typingChannel = supabase
+      .channel(`chat_typing_interest_${activeRoom.id}_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chat_typing',
+        },
+        (payload: any) => {
+          const row = payload.new
+          if (!row) return
+
+          const isCorrectChat = row.chat_type === 'interest' && row.room_id === activeRoom.id
+          const isNotMe = row.typer_id !== user.id
+
+          if (!isCorrectChat || !isNotMe) return
+
+          const updatedAt = new Date(row.updated_at).getTime()
+          const isFresh = Date.now() - updatedAt < 5000
+
+          if (!isFresh) return
+
+          setTypingNames([row.display_name ?? 'Someone'])
+
+          if (typingClearRef.current) {
+            clearTimeout(typingClearRef.current)
+          }
+
+          typingClearRef.current = setTimeout(() => {
+            setTypingNames([])
+          }, 3000)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(typingChannel)
+      setTypingNames([])
+
+      if (typingClearRef.current) {
+        clearTimeout(typingClearRef.current)
+      }
+    }
+  }, [user, activeRoom])
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, typingNames])
+
+  const handleInputChange = async (value: string) => {
+    setInput(value)
+
+    if (!value.trim()) return
+    await sendTypingSignal()
+  }
 
   const send = async () => {
     if (!user || !input.trim() || sending || !activeRoom) return
@@ -347,6 +424,7 @@ function ChatPage() {
       })
 
       setInput('')
+      setTypingNames([])
       setReplyTo(null)
       markMessageSent()
       await awardXp()
@@ -554,7 +632,10 @@ function ChatPage() {
           ))}
 
           <button
-            onClick={() => setActiveRoom(null)}
+            onClick={() => {
+              setActiveRoom(null)
+              setTypingNames([])
+            }}
             className="text-xs px-2 py-1.5 border border-zinc-800 rounded-md text-zinc-500 hover:text-white hover:border-zinc-600 transition-colors flex items-center gap-1"
           >
             <X size={12} /> Leave
@@ -633,7 +714,7 @@ function ChatPage() {
           <input
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
             placeholder={replyTo ? `Reply to ${replyTo.displayName}…` : `Message ${activeRoom.name}`}
             className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600 transition-colors"
