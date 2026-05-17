@@ -71,28 +71,80 @@ function ChallengesPage() {
     async function loadChallenges() {
       setLoading(true)
 
-      const { data: profile, error } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('message_count,total_xp')
         .eq('id', user.id)
         .maybeSingle()
 
-      if (error) {
-        console.error('Challenges load error:', error)
+      if (profileError) {
+        console.error('Challenges load error:', profileError)
       }
 
       const messageCount = profile?.message_count ?? 0
       const totalXp = profile?.total_xp ?? 0
 
+      const { data: completedRows } = await supabase
+        .from('completed_challenges')
+        .select('challenge_key, completed_at')
+        .eq('user_id', user.id)
+
+      const completedMap = new Map<string, string>()
+      for (const row of completedRows ?? []) {
+        completedMap.set(row.challenge_key, row.completed_at)
+      }
+
+      for (const challenge of BASE_CHALLENGES) {
+        const progress =
+          challenge.category === 'xp'
+            ? totalXp
+            : messageCount
+
+        const qualifies = progress >= challenge.target
+        const alreadyCompleted = completedMap.has(challenge.key)
+
+        if (qualifies && !alreadyCompleted) {
+          const { error: insertError } = await supabase
+            .from('completed_challenges')
+            .insert({
+              user_id: user.id,
+              challenge_key: challenge.key,
+              xp_reward: challenge.xpReward,
+            })
+
+          if (!insertError) {
+            await supabase
+              .from('profiles')
+              .update({
+                total_xp: (profile?.total_xp ?? 0) + challenge.xpReward,
+              })
+              .eq('id', user.id)
+
+            completedMap.set(
+              challenge.key,
+              new Date().toISOString()
+            )
+
+            profile.total_xp =
+              (profile?.total_xp ?? 0) + challenge.xpReward
+          }
+        }
+      }
+
       const mapped: Challenge[] = BASE_CHALLENGES.map((c) => {
-        const progress = c.category === 'xp' ? totalXp : messageCount
-        const completed = progress >= c.target
+        const progress =
+          c.category === 'xp'
+            ? (profile?.total_xp ?? 0)
+            : messageCount
+
+        const completedAt =
+          completedMap.get(c.key) ?? null
 
         return {
           ...c,
           progress,
-          completed,
-          completedAt: completed ? new Date().toISOString() : null,
+          completed: completedAt !== null,
+          completedAt,
         }
       })
 
@@ -107,7 +159,10 @@ function ChallengesPage() {
 
   const completed = challenges.filter((c) => c.completed)
   const active = challenges.filter((c) => !c.completed)
-  const totalXpEarned = completed.reduce((sum, c) => sum + c.xpReward, 0)
+  const totalXpEarned = completed.reduce(
+    (sum, c) => sum + c.xpReward,
+    0
+  )
 
   return (
     <div className="flex flex-col h-full bg-zinc-950">
@@ -115,7 +170,9 @@ function ChallengesPage() {
         <h1 className="text-sm font-semibold text-white flex items-center gap-2">
           <Target size={16} className="text-purple-400" /> Challenges
         </h1>
-        <p className="text-xs text-zinc-500">{completed.length}/{challenges.length} completed · {totalXpEarned.toLocaleString()} XP earned</p>
+        <p className="text-xs text-zinc-500">
+          {completed.length}/{challenges.length} completed · {totalXpEarned.toLocaleString()} XP earned
+        </p>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-6 space-y-6">
@@ -127,7 +184,9 @@ function ChallengesPage() {
 
         {!loading && active.length > 0 && (
           <div>
-            <h2 className="text-xs font-medium text-zinc-600 uppercase tracking-wider mb-3">In Progress</h2>
+            <h2 className="text-xs font-medium text-zinc-600 uppercase tracking-wider mb-3">
+              In Progress
+            </h2>
             <div className="space-y-2">
               {active.map((c) => (
                 <ChallengeCard key={c.key} challenge={c} />
@@ -138,7 +197,9 @@ function ChallengesPage() {
 
         {!loading && completed.length > 0 && (
           <div>
-            <h2 className="text-xs font-medium text-zinc-600 uppercase tracking-wider mb-3">Completed</h2>
+            <h2 className="text-xs font-medium text-zinc-600 uppercase tracking-wider mb-3">
+              Completed
+            </h2>
             <div className="space-y-2">
               {completed.map((c) => (
                 <ChallengeCard key={c.key} challenge={c} />
@@ -155,16 +216,43 @@ function ChallengeCard({ challenge: c }: { challenge: Challenge }) {
   const pct = Math.min((c.progress / c.target) * 100, 100)
 
   return (
-    <div className={`bg-zinc-900 border rounded-xl p-4 ${c.completed ? 'border-emerald-800/50' : 'border-zinc-800'}`}>
+    <div
+      className={`bg-zinc-900 border rounded-xl p-4 ${
+        c.completed
+          ? 'border-emerald-800/50'
+          : 'border-zinc-800'
+      }`}
+    >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            {c.completed && <Check size={14} className="text-emerald-400 flex-shrink-0" />}
-            <p className={`text-sm font-medium ${c.completed ? 'text-emerald-400' : 'text-white'}`}>{c.name}</p>
+            {c.completed && (
+              <Check
+                size={14}
+                className="text-emerald-400 flex-shrink-0"
+              />
+            )}
+            <p
+              className={`text-sm font-medium ${
+                c.completed
+                  ? 'text-emerald-400'
+                  : 'text-white'
+              }`}
+            >
+              {c.name}
+            </p>
           </div>
-          <p className="text-xs text-zinc-500 mt-0.5">{c.description}</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            {c.description}
+          </p>
         </div>
-        <span className={`text-xs font-medium flex-shrink-0 ml-3 ${c.completed ? 'text-emerald-500' : 'text-yellow-400'}`}>
+        <span
+          className={`text-xs font-medium flex-shrink-0 ml-3 ${
+            c.completed
+              ? 'text-emerald-500'
+              : 'text-yellow-400'
+          }`}
+        >
           +{c.xpReward} XP
         </span>
       </div>
@@ -177,7 +265,9 @@ function ChallengeCard({ challenge: c }: { challenge: Challenge }) {
               style={{ width: `${pct}%` }}
             />
           </div>
-          <span className="text-xs text-zinc-500">{c.progress}/{c.target}</span>
+          <span className="text-xs text-zinc-500">
+            {c.progress}/{c.target}
+          </span>
         </div>
       )}
     </div>
