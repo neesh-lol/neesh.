@@ -178,7 +178,12 @@ function CommunityPage() {
       })
       setInput('')
       setReplyTo(null)
-      markMessageSent()
+     markMessageSent()
+
+await supabase.rpc('increment_user_xp', {
+  user_id_input: user.id,
+  xp_amount: 10,
+})
     }
 
     setSending(false)
