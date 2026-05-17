@@ -87,11 +87,39 @@ function AppShell() {
   const pathname = location.pathname
   const isPublicPath = PUBLIC_PATHS.includes(pathname)
 
-  useEffect(() => {
-    if (!user) return
-    setPendingCount(0)
-    setUnreadDms(0)
-  }, [user])
+useEffect(() => {
+  if (!user) return
+
+  const loadNotificationCounts = async () => {
+    try {
+      const friendsRes = await fetch('/api/friends')
+      if (friendsRes.ok) {
+        const friendsData = await friendsRes.json()
+        setPendingCount((friendsData.pendingReceived ?? []).length)
+      }
+
+      const messagesRes = await fetch('/api/direct-messages')
+      if (messagesRes.ok) {
+        const messagesData = await messagesRes.json()
+
+        const totalUnread = (messagesData.conversations ?? []).reduce(
+          (sum: number, conv: any) => sum + (conv.unreadCount ?? 0),
+          0
+        )
+
+        setUnreadDms(totalUnread)
+      }
+    } catch (error) {
+      console.error('Notification count load error:', error)
+    }
+  }
+
+  loadNotificationCounts()
+
+  const interval = setInterval(loadNotificationCounts, 10000)
+
+  return () => clearInterval(interval)
+}, [user])
 
   useEffect(() => {
     if (!user) return
