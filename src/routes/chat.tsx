@@ -107,6 +107,32 @@ function ChatPage() {
     loadProfile()
   }, [user])
 
+  const awardXp = async () => {
+    if (!user) return
+
+    const currentXp = myProfile?.total_xp ?? 0
+    const currentMessages = myProfile?.message_count ?? 0
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        total_xp: currentXp + 10,
+        message_count: currentMessages + 1,
+      })
+      .eq('id', user.id)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('XP update error:', error)
+      setCooldownMsg(`XP update failed: ${error.message}`)
+      setTimeout(() => setCooldownMsg(''), 3000)
+      return
+    }
+
+    if (data) setMyProfile(data)
+  }
+
   const loadMessages = async (roomId: string) => {
     const { data, error } = await supabase
       .from('chat_messages')
@@ -127,9 +153,7 @@ function ChatPage() {
     if (!interest) return
 
     setJoining(true)
-
     const roomName = `#${interest}`
-
     let room: Room | null = null
 
     const { data: existingRoom, error: findError } = await supabase
@@ -138,9 +162,7 @@ function ChatPage() {
       .eq('interest', interest)
       .maybeSingle()
 
-    if (findError) {
-      console.error('Find room error:', findError)
-    }
+    if (findError) console.error('Find room error:', findError)
 
     if (existingRoom) {
       room = {
@@ -151,10 +173,7 @@ function ChatPage() {
     } else {
       const { data: newRoom, error: createError } = await supabase
         .from('chat_rooms')
-        .insert({
-          interest,
-          name: roomName,
-        })
+        .insert({ interest, name: roomName })
         .select()
         .single()
 
@@ -181,7 +200,6 @@ function ChatPage() {
     setRecentInterests(getRecentInterests())
 
     await loadMessages(room.id)
-
     setJoining(false)
   }
 
@@ -256,13 +274,16 @@ function ChatPage() {
       setTimeout(() => setCooldownMsg(''), 3000)
     } else if (data) {
       const msg = toChatMessage(data as DbMessage)
+
       setMessages((prev) => {
         if (prev.some((m) => String(m.id) === String(msg.id))) return prev
         return [...prev, msg]
       })
+
       setInput('')
       setReplyTo(null)
       markMessageSent()
+      await awardXp()
     }
 
     setSending(false)
