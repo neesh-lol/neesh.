@@ -50,7 +50,7 @@ function CommunityPage() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [replyTo, setReplyTo] = useState<ChatMessageData | null>(null)
-  const [typingNames] = useState<string[]>([])
+  const [typingNames, setTypingNames] = useState<string[]>([])
   const [mutedUsers, setMutedUsers] = useState<Set<string>>(new Set())
   const [blockedUsers] = useState<Set<string>>(new Set())
   const [cooldownMsg, setCooldownMsg] = useState('')
@@ -61,6 +61,7 @@ function CommunityPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (ready && !user) navigate({ to: '/signin' })
@@ -121,6 +122,25 @@ function CommunityPage() {
     }
 
     setReactions(grouped)
+  }
+
+  const sendTypingSignal = async () => {
+    if (!user) return
+
+    const { error } = await supabase
+      .from('chat_typing')
+      .upsert({
+        chat_type: 'community',
+        room_id: 'global',
+        typer_id: user.id,
+        receiver_id: null,
+        display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
+        updated_at: new Date().toISOString(),
+      })
+
+    if (error) {
+      console.error('Community typing signal error:', error)
+    }
   }
 
   useEffect(() => {
@@ -199,11 +219,64 @@ function CommunityPage() {
   }, [user])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (!user) return
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInput(e.target.value)
+    const typingChannel = supabase
+      .channel(`chat_typing_community_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chat_typing',
+        },
+        (payload: any) => {
+          const row = payload.new
+          if (!row) return
+
+          const isCorrectChat = row.chat_type === 'community' && row.room_id === 'global'
+          const isNotMe = row.typer_id !== user.id
+
+          if (!isCorrectChat || !isNotMe) return
+
+          const updatedAt = new Date(row.updated_at).getTime()
+          const isFresh = Date.now() - updatedAt < 5000
+
+          if (!isFresh) return
+
+          setTypingNames([row.display_name ?? 'Someone'])
+
+          if (typingClearRef.current) {
+            clearTimeout(typingClearRef.current)
+          }
+
+          typingClearRef.current = setTimeout(() => {
+            setTypingNames([])
+          }, 3000)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(typingChannel)
+      setTypingNames([])
+
+      if (typingClearRef.current) {
+        clearTimeout(typingClearRef.current)
+      }
+    }
+  }, [user])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, typingNames])
+
+  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setInput(value)
+
+    if (!value.trim()) return
+    await sendTypingSignal()
   }
 
   const awardXp = async () => {
@@ -277,6 +350,7 @@ function CommunityPage() {
       })
 
       setInput('')
+      setTypingNames([])
       setReplyTo(null)
       markMessageSent()
       await awardXp()
