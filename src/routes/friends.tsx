@@ -9,6 +9,11 @@ export const Route = createFileRoute('/friends')({
   component: FriendsPage,
 })
 
+interface PresenceInfo {
+  status: string
+  lastSeen: string | null
+}
+
 interface UserResult {
   id: any
   displayName: string
@@ -20,6 +25,7 @@ interface UserResult {
   totalXp: number
   isPremium?: boolean
   isFounderOverride?: boolean
+  presence?: PresenceInfo
 }
 
 interface FriendProfile extends UserResult {
@@ -45,6 +51,33 @@ interface FriendsData {
   pendingSent: UserResult[]
 }
 
+function isPresenceOnline(presence?: PresenceInfo) {
+  if (!presence?.lastSeen) return false
+
+  return (
+    presence.status === 'online' &&
+    Date.now() - new Date(presence.lastSeen).getTime() < 90000
+  )
+}
+
+function formatLastSeen(lastSeen?: string | null) {
+  if (!lastSeen) return 'Offline'
+
+  const diffMs = Date.now() - new Date(lastSeen).getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMin / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffMin < 1) return 'Active just now'
+  if (diffMin < 60) return `Active ${diffMin}m ago`
+  if (diffHours < 24) return `Active ${diffHours}h ago`
+  return `Active ${diffDays}d ago`
+}
+
+function presenceText(presence?: PresenceInfo) {
+  return isPresenceOnline(presence) ? 'Online' : formatLastSeen(presence?.lastSeen)
+}
+
 function DefaultAvatar({ size = 40 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" className="rounded-full shrink-0">
@@ -55,7 +88,51 @@ function DefaultAvatar({ size = 40 }: { size?: number }) {
   )
 }
 
-function mapUserResult(p: any): UserResult {
+function AvatarWithPresence({
+  name,
+  url,
+  size = 40,
+  presence,
+  imageStyle,
+}: {
+  name: string
+  url?: string
+  size?: number
+  presence?: PresenceInfo
+  imageStyle?: React.CSSProperties
+}) {
+  const online = isPresenceOnline(presence)
+  const dotSize = size >= 60 ? 14 : 12
+
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      {url ? (
+        <img
+          src={url}
+          alt=""
+          className="rounded-full object-cover"
+          style={{ width: size, height: size, ...imageStyle }}
+        />
+      ) : (
+        <DefaultAvatar size={size} />
+      )}
+
+      {presence && (
+        <span
+          className={`absolute rounded-full border-2 border-zinc-950 ${online ? 'bg-emerald-400' : 'bg-zinc-600'}`}
+          style={{
+            width: dotSize,
+            height: dotSize,
+            right: 0,
+            bottom: 0,
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function mapUserResult(p: any, presence?: PresenceInfo): UserResult {
   return {
     id: p.id,
     displayName: p.display_name ?? 'User',
@@ -67,6 +144,7 @@ function mapUserResult(p: any): UserResult {
     totalXp: p.total_xp ?? 0,
     isPremium: p.is_premium ?? false,
     isFounderOverride: p.is_founder_override ?? false,
+    presence,
   }
 }
 
@@ -93,6 +171,31 @@ function FriendsPage() {
     if (ready && !user) navigate({ to: '/signin' })
   }, [ready, user, navigate])
 
+  const loadPresenceMap = async (ids: string[]) => {
+    const presenceMap = new Map<string, PresenceInfo>()
+
+    if (ids.length === 0) return presenceMap
+
+    const { data, error } = await supabase
+      .from('user_presence')
+      .select('user_id,status,last_seen,updated_at')
+      .in('user_id', ids)
+
+    if (error) {
+      console.error('Presence load error:', error)
+      return presenceMap
+    }
+
+    for (const row of data ?? []) {
+      presenceMap.set(row.user_id, {
+        status: row.status ?? 'offline',
+        lastSeen: row.last_seen ?? row.updated_at ?? null,
+      })
+    }
+
+    return presenceMap
+  }
+
   const loadFriends = useCallback(async () => {
     if (!user) return
 
@@ -113,7 +216,9 @@ function FriendsPage() {
 
     const profileIds = Array.from(
       new Set(
-        friendships.flatMap((f: any) => [f.requester_id, f.receiver_id]).filter((id: string) => id !== user.id)
+        friendships
+          .flatMap((f: any) => [f.requester_id, f.receiver_id])
+          .filter((id: string) => id !== user.id)
       )
     )
 
@@ -134,6 +239,8 @@ function FriendsPage() {
       return
     }
 
+    const presenceMap = await loadPresenceMap(profileIds)
+
     const profileMap = new Map<string, any>()
     for (const p of profiles ?? []) {
       profileMap.set(p.id, p)
@@ -148,13 +255,15 @@ function FriendsPage() {
       const other = profileMap.get(otherId)
       if (!other) continue
 
+      const mapped = mapUserResult(other, presenceMap.get(otherId) ?? { status: 'offline', lastSeen: null })
+
       if (f.status === 'accepted') {
-        friends.push(mapUserResult(other))
+        friends.push(mapped)
       } else if (f.status === 'pending') {
         if (f.receiver_id === user.id) {
-          pendingReceived.push(mapUserResult(other))
+          pendingReceived.push(mapped)
         } else {
-          pendingSent.push(mapUserResult(other))
+          pendingSent.push(mapped)
         }
       }
     }
@@ -166,6 +275,37 @@ function FriendsPage() {
   useEffect(() => {
     if (user) loadFriends()
   }, [user, loadFriends])
+
+  useEffect(() => {
+    if (!user) return
+
+    const channel = supabase
+      .channel(`friends_presence_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_presence',
+        },
+        () => {
+          loadFriends()
+
+          if (query.trim().length >= 2) {
+            searchUsers()
+          }
+
+          if (viewingProfile?.username) {
+            viewProfile(viewingProfile.username)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user, loadFriends, query, viewingProfile?.username])
 
   useEffect(() => {
     if (!user) return
@@ -206,7 +346,10 @@ function FriendsPage() {
       return
     }
 
-    setResults((data ?? []).map(mapUserResult))
+    const ids = (data ?? []).map((p: any) => p.id)
+    const presenceMap = await loadPresenceMap(ids)
+
+    setResults((data ?? []).map((p: any) => mapUserResult(p, presenceMap.get(p.id) ?? { status: 'offline', lastSeen: null })))
     setSearching(false)
   }
 
@@ -317,6 +460,8 @@ function FriendsPage() {
     }
 
     const friendship = await getFriendshipStatus(p.id)
+    const presenceMap = await loadPresenceMap([p.id])
+    const presence = presenceMap.get(p.id) ?? { status: 'offline', lastSeen: null }
 
     const mappedProfile: FriendProfile = {
       id: p.id,
@@ -341,6 +486,7 @@ function FriendsPage() {
       profileColorPrimary: p.profile_color_primary ?? '',
       profileColorSecondary: p.profile_color_secondary ?? '',
       profileViews,
+      presence,
     }
 
     setViewingProfile(mappedProfile)
@@ -504,6 +650,29 @@ function FriendsPage() {
     setAdminLoading(false)
   }
 
+  const UserRow = ({ u, right }: { u: UserResult; right?: React.ReactNode }) => (
+    <div className="flex items-center gap-3 w-full">
+      <AvatarWithPresence
+        name={u.displayName}
+        url={u.avatarUrl || undefined}
+        presence={u.presence}
+      />
+
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
+          {u.displayName}
+          <VerifiedBadge username={u.username} isPremium={u.isPremium} isFounderOverride={u.isFounderOverride} size={14} />
+        </p>
+        {u.username && <p className="text-xs text-zinc-500">@{u.username}</p>}
+        <p className={`text-[11px] ${isPresenceOnline(u.presence) ? 'text-emerald-400' : 'text-zinc-600'}`}>
+          {presenceText(u.presence)}
+        </p>
+      </div>
+
+      {right}
+    </div>
+  )
+
   if (!ready || !user) {
     return (
       <div className="flex items-center justify-center h-full bg-zinc-950">
@@ -548,6 +717,9 @@ function FriendsPage() {
                 <VerifiedBadge username={p.username} isPremium={p.isPremium} isFounderOverride={p.isFounderOverride} size={15} />
               </h1>
               {p.username && <p className="text-xs text-zinc-500">@{p.username}</p>}
+              <p className={`text-[11px] ${isPresenceOnline(p.presence) ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                {presenceText(p.presence)}
+              </p>
             </div>
           </div>
         )}
@@ -556,38 +728,42 @@ function FriendsPage() {
           {pHasGradient ? (
             <div className="rounded-xl p-px" style={{ background: `linear-gradient(135deg, ${p.profileColorPrimary}, ${p.profileColorSecondary})` }}>
               <div className="bg-zinc-950 rounded-xl p-4 flex items-center gap-5">
-                {p.avatarUrl ? (
-                  <img
-                    src={p.avatarUrl}
-                    alt="avatar"
-                    className="w-16 h-16 rounded-full object-cover"
-                    style={{ boxShadow: `0 0 0 3px ${p.profileColorPrimary}` }}
-                  />
-                ) : (
-                  <DefaultAvatar size={64} />
-                )}
+                <AvatarWithPresence
+                  name={p.displayName}
+                  url={p.avatarUrl || undefined}
+                  size={64}
+                  presence={p.presence}
+                  imageStyle={{ boxShadow: `0 0 0 3px ${p.profileColorPrimary}` }}
+                />
                 <div>
                   <p className="text-sm font-medium text-white flex items-center gap-1.5">
                     {p.displayName}
                     <VerifiedBadge username={p.username} isPremium={p.isPremium} isFounderOverride={p.isFounderOverride} size={15} />
                   </p>
                   {p.username && <p className="text-xs text-zinc-500">@{p.username}</p>}
+                  <p className={`text-[11px] ${isPresenceOnline(p.presence) ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                    {presenceText(p.presence)}
+                  </p>
                 </div>
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-5">
-              {p.avatarUrl ? (
-                <img src={p.avatarUrl} alt="avatar" className="w-16 h-16 rounded-full object-cover" />
-              ) : (
-                <DefaultAvatar size={64} />
-              )}
+              <AvatarWithPresence
+                name={p.displayName}
+                url={p.avatarUrl || undefined}
+                size={64}
+                presence={p.presence}
+              />
               <div>
                 <p className="text-sm font-medium text-white flex items-center gap-1.5">
                   {p.displayName}
                   <VerifiedBadge username={p.username} isPremium={p.isPremium} isFounderOverride={p.isFounderOverride} size={15} />
                 </p>
                 {p.username && <p className="text-xs text-zinc-500">@{p.username}</p>}
+                <p className={`text-[11px] ${isPresenceOnline(p.presence) ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                  {presenceText(p.presence)}
+                </p>
               </div>
             </div>
           )}
@@ -870,19 +1046,7 @@ function FriendsPage() {
                 onClick={() => u.username && viewProfile(u.username)}
                 className="w-full flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 hover:bg-zinc-800 transition-colors text-left"
               >
-                {u.avatarUrl ? (
-                  <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
-                ) : (
-                  <DefaultAvatar />
-                )}
-
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
-                    {u.displayName}
-                    <VerifiedBadge username={u.username} isPremium={u.isPremium} isFounderOverride={u.isFounderOverride} size={14} />
-                  </p>
-                  {u.username && <p className="text-xs text-zinc-500">@{u.username}</p>}
-                </div>
+                <UserRow u={u} />
               </button>
             ))}
           </div>
@@ -908,19 +1072,7 @@ function FriendsPage() {
                         onClick={() => u.username && viewProfile(u.username)}
                         className="w-full flex items-center gap-3 bg-zinc-900 border border-zinc-800 rounded-lg p-3 hover:bg-zinc-800 transition-colors text-left"
                       >
-                        {u.avatarUrl ? (
-                          <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
-                        ) : (
-                          <DefaultAvatar />
-                        )}
-
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
-                            {u.displayName}
-                            <VerifiedBadge username={u.username} isPremium={u.isPremium} isFounderOverride={u.isFounderOverride} size={14} />
-                          </p>
-                          {u.username && <p className="text-xs text-zinc-500">@{u.username}</p>}
-                        </div>
+                        <UserRow u={u} />
                       </button>
                     ))}
                   </div>
@@ -962,19 +1114,7 @@ function FriendsPage() {
                           onClick={() => u.username && viewProfile(u.username)}
                           className="flex items-center gap-3 flex-1 min-w-0 text-left"
                         >
-                          {u.avatarUrl ? (
-                            <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
-                          ) : (
-                            <DefaultAvatar />
-                          )}
-
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
-                              {u.displayName}
-                              <VerifiedBadge username={u.username} isPremium={u.isPremium} isFounderOverride={u.isFounderOverride} size={14} />
-                            </p>
-                            {u.username && <p className="text-xs text-zinc-500">@{u.username}</p>}
-                          </div>
+                          <UserRow u={u} />
                         </button>
 
                         <div className="flex gap-2 shrink-0">
@@ -1013,19 +1153,7 @@ function FriendsPage() {
                           onClick={() => u.username && viewProfile(u.username)}
                           className="flex items-center gap-3 flex-1 min-w-0 text-left"
                         >
-                          {u.avatarUrl ? (
-                            <img src={u.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
-                          ) : (
-                            <DefaultAvatar />
-                          )}
-
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
-                              {u.displayName}
-                              <VerifiedBadge username={u.username} isPremium={u.isPremium} isFounderOverride={u.isFounderOverride} size={14} />
-                            </p>
-                            {u.username && <p className="text-xs text-zinc-500">@{u.username}</p>}
-                          </div>
+                          <UserRow u={u} />
                         </button>
 
                         <span className="text-xs text-zinc-600 shrink-0 flex items-center gap-1">
