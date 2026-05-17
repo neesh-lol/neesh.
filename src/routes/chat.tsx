@@ -42,6 +42,8 @@ type DbMessage = {
   created_at: string
 }
 
+type ReactionMap = Record<string, Array<{ emoji: string; userId: string; displayName: string }>>
+
 function toChatMessage(row: DbMessage): ChatMessageData {
   return {
     id: row.id as any,
@@ -61,6 +63,7 @@ function ChatPage() {
   const [activeRoom, setActiveRoom] = useState<Room | null>(null)
   const [rooms, setRooms] = useState<Room[]>([])
   const [messages, setMessages] = useState<ChatMessageData[]>([])
+  const [reactions, setReactions] = useState<ReactionMap>({})
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [joining, setJoining] = useState(false)
@@ -107,6 +110,32 @@ function ChatPage() {
     loadProfile()
   }, [user])
 
+  const loadReactions = async () => {
+    const { data, error } = await supabase
+      .from('message_reactions')
+      .select('*')
+      .eq('message_type', 'chat')
+
+    if (error) {
+      console.error('Reaction load error:', error)
+      return
+    }
+
+    const grouped: ReactionMap = {}
+
+    for (const r of data ?? []) {
+      const key = String(r.message_id)
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push({
+        emoji: r.emoji,
+        userId: r.user_id,
+        displayName: r.display_name ?? 'User',
+      })
+    }
+
+    setReactions(grouped)
+  }
+
   const awardXp = async () => {
     if (!user) return
 
@@ -146,6 +175,7 @@ function ChatPage() {
     }
 
     setMessages((data ?? []).map(toChatMessage))
+    await loadReactions()
   }
 
   const joinRoom = async (interestRaw: string) => {
@@ -289,9 +319,36 @@ function ChatPage() {
     setSending(false)
   }
 
-  const handleReact = async () => {
-    setCooldownMsg('Reactions are being rebuilt for Supabase.')
-    setTimeout(() => setCooldownMsg(''), 2000)
+  const handleReact = async (messageId: number, emoji: string) => {
+    if (!user) return
+
+    const { data: existing } = await supabase
+      .from('message_reactions')
+      .select('id')
+      .eq('message_type', 'chat')
+      .eq('message_id', String(messageId))
+      .eq('user_id', user.id)
+      .eq('emoji', emoji)
+      .maybeSingle()
+
+    if (existing) {
+      await supabase
+        .from('message_reactions')
+        .delete()
+        .eq('id', existing.id)
+    } else {
+      await supabase
+        .from('message_reactions')
+        .insert({
+          message_type: 'chat',
+          message_id: String(messageId),
+          user_id: user.id,
+          display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
+          emoji,
+        })
+    }
+
+    await loadReactions()
   }
 
   const handleReport = async () => {
@@ -443,7 +500,7 @@ function ChatPage() {
               grouped={grouped}
               currentUserId={user.id}
               messageType="chat"
-             reactions={reactions[String(msg.id)] ?? []}
+              reactions={reactions[String(msg.id)] ?? []}
               replyTarget={replyTarget}
               isMuted={mutedUsers.has(msg.userId)}
               isFounder={myProfile?.username === 'ceo' && msg.userId === user.id}
