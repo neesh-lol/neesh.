@@ -77,7 +77,10 @@ function CommunityPage() {
         .maybeSingle()
 
       setMyProfile(data)
-      if (data?.username === 'ceo') setIsOwner(true)
+
+      if (data?.username === 'ceo' || data?.is_founder_override === true) {
+        setIsOwner(true)
+      }
     }
 
     loadProfile()
@@ -134,6 +137,19 @@ function CommunityPage() {
     setInput(e.target.value)
   }
 
+  const awardXp = async () => {
+    if (!user) return
+
+    const { error } = await supabase.rpc('increment_user_xp', {
+      user_id_input: user.id,
+      xp_amount: 10,
+    })
+
+    if (error) {
+      console.error('XP update error:', error)
+    }
+  }
+
   const send = async () => {
     if (!user || !input.trim() || sending) return
 
@@ -172,18 +188,16 @@ function CommunityPage() {
       setTimeout(() => setCooldownMsg(''), 3000)
     } else if (data) {
       const msg = toChatMessage(data as DbMessage)
+
       setMessages((prev) => {
         if (prev.some((m) => String(m.id) === String(msg.id))) return prev
         return [...prev, msg]
       })
+
       setInput('')
       setReplyTo(null)
-     markMessageSent()
-
-await supabase.rpc('increment_user_xp', {
-  user_id_input: user.id,
-  xp_amount: 10,
-})
+      markMessageSent()
+      await awardXp()
     }
 
     setSending(false)
@@ -260,7 +274,7 @@ await supabase.rpc('increment_user_xp', {
               replyTarget={replyTarget}
               isMuted={mutedUsers.has(msg.userId)}
               isFounder={myProfile?.username === 'ceo' && msg.userId === user.id}
-              isPremiumUser={false}
+              isPremiumUser={myProfile?.is_premium === true || myProfile?.is_founder_override === true}
               onAvatarClick={(e, m) => {
                 const rect = e.currentTarget.getBoundingClientRect()
                 setPopup({ userId: m.userId, displayName: m.displayName, avatarUrl: m.avatarUrl || undefined, x: rect.right + 8, y: rect.top })
