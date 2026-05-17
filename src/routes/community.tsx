@@ -44,6 +44,7 @@ function CommunityPage() {
   const navigate = useNavigate()
 
   const [messages, setMessages] = useState<ChatMessageData[]>([])
+  const [reactions, setReactions] = useState<Record<string, Array<{ emoji: string; userId: string; displayName: string }>>>({})
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [replyTo, setReplyTo] = useState<ChatMessageData | null>(null)
