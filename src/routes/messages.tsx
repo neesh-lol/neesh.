@@ -25,6 +25,11 @@ export const Route = createFileRoute('/messages')({
   component: MessagesPage,
 })
 
+interface PresenceInfo {
+  status: string
+  lastSeen: string | null
+}
+
 interface Conversation {
   partnerId: string
   displayName: string
@@ -35,6 +40,7 @@ interface Conversation {
   isLastFromMe: boolean
   unreadCount?: number
   isFounder?: boolean
+  presence?: PresenceInfo
 }
 
 interface DirectMessage {
@@ -54,13 +60,66 @@ interface FriendEntry {
   avatarUrl: string
   netlifyId: string
   isFounder?: boolean
+  presence?: PresenceInfo
 }
 
-function Avatar({ name, url, size = 'w-10 h-10' }: { name: string; url?: string; size?: string }) {
-  if (url) return <img src={url} alt={name} className={`${size} rounded-full object-cover flex-shrink-0`} />
+function isPresenceOnline(presence?: PresenceInfo) {
+  if (!presence?.lastSeen) return false
+
   return (
-    <div className={`${size} rounded-full bg-zinc-700 flex items-center justify-center text-xs font-medium text-white flex-shrink-0`}>
-      {name.slice(0, 2).toUpperCase()}
+    presence.status === 'online' &&
+    Date.now() - new Date(presence.lastSeen).getTime() < 90000
+  )
+}
+
+function formatLastSeen(lastSeen?: string | null) {
+  if (!lastSeen) return 'Offline'
+
+  const diffMs = Date.now() - new Date(lastSeen).getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMin / 60)
+  const diffDays = Math.floor(diffHours / 24)
+
+  if (diffMin < 1) return 'Active just now'
+  if (diffMin < 60) return `Active ${diffMin}m ago`
+  if (diffHours < 24) return `Active ${diffHours}h ago`
+  return `Active ${diffDays}d ago`
+}
+
+function presenceText(presence?: PresenceInfo) {
+  return isPresenceOnline(presence) ? 'Online' : formatLastSeen(presence?.lastSeen)
+}
+
+function Avatar({
+  name,
+  url,
+  size = 'w-10 h-10',
+  presence,
+}: {
+  name: string
+  url?: string
+  size?: string
+  presence?: PresenceInfo
+}) {
+  const online = isPresenceOnline(presence)
+
+  return (
+    <div className="relative flex-shrink-0">
+      {url ? (
+        <img src={url} alt={name} className={`${size} rounded-full object-cover`} />
+      ) : (
+        <div className={`${size} rounded-full bg-zinc-700 flex items-center justify-center text-xs font-medium text-white`}>
+          {name.slice(0, 2).toUpperCase()}
+        </div>
+      )}
+
+      {presence && (
+        <span
+          className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-zinc-950 ${
+            online ? 'bg-emerald-400' : 'bg-zinc-600'
+          }`}
+        />
+      )}
     </div>
   )
 }
@@ -118,6 +177,31 @@ function MessagesPage() {
     setFounderUserId(data?.id ?? null)
   }, [])
 
+  const loadPresenceMap = async (userIds: string[]) => {
+    const presenceMap = new Map<string, PresenceInfo>()
+
+    if (userIds.length === 0) return presenceMap
+
+    const { data, error } = await supabase
+      .from('user_presence')
+      .select('user_id,status,last_seen,updated_at')
+      .in('user_id', userIds)
+
+    if (error) {
+      console.error('Presence map load error:', error)
+      return presenceMap
+    }
+
+    for (const row of data ?? []) {
+      presenceMap.set(row.user_id, {
+        status: row.status ?? 'offline',
+        lastSeen: row.last_seen ?? row.updated_at ?? null,
+      })
+    }
+
+    return presenceMap
+  }
+
   const loadConversations = useCallback(async () => {
     if (!user) return
 
@@ -164,6 +248,8 @@ function MessagesPage() {
       return
     }
 
+    const presenceMap = await loadPresenceMap(partnerIds)
+
     const profileMap = new Map<string, any>()
     for (const p of profiles ?? []) {
       profileMap.set(p.id, p)
@@ -195,11 +281,19 @@ function MessagesPage() {
           isLastFromMe: msg.sender_id === user.id,
           unreadCount,
           isFounder: partner.username === FOUNDER_USERNAME,
+          presence: presenceMap.get(partnerId) ?? { status: 'offline', lastSeen: null },
         })
       }
     }
 
     setConversations(Array.from(convMap.values()))
+
+    setActivePartner((current) => {
+      if (!current) return current
+      const updated = convMap.get(current.partnerId)
+      return updated ? { ...current, ...updated } : current
+    })
+
     setLoading(false)
   }, [user])
 
@@ -320,12 +414,23 @@ function MessagesPage() {
           }
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_presence',
+        },
+        () => {
+          loadConversations()
+        }
+      )
       .subscribe()
 
     return () => {
       supabase.removeChannel(dmChannel)
     }
-  }, [user, activePartner])
+  }, [user, activePartner, loadConversations])
 
   useEffect(() => {
     if (!user || !activePartner) return
@@ -433,6 +538,8 @@ function MessagesPage() {
       return
     }
 
+    const presenceMap = await loadPresenceMap(friendIds)
+
     setFriends(
       (profiles ?? []).map((p: any) => ({
         id: p.id,
@@ -441,6 +548,7 @@ function MessagesPage() {
         username: p.username ?? null,
         avatarUrl: p.avatar_url ?? '',
         isFounder: p.username === FOUNDER_USERNAME,
+        presence: presenceMap.get(p.id) ?? { status: 'offline', lastSeen: null },
       }))
     )
   }
@@ -458,6 +566,7 @@ function MessagesPage() {
       isLastFromMe: false,
       unreadCount: 0,
       isFounder: friend.username === FOUNDER_USERNAME,
+      presence: friend.presence,
     }
 
     openConversation(conv)
@@ -565,13 +674,17 @@ function MessagesPage() {
               onClick={() => selectFriend(f)}
               className="w-full flex items-center gap-3 px-5 py-3 hover:bg-zinc-900 transition-colors text-left"
             >
-              <Avatar name={f.displayName} url={f.avatarUrl || undefined} />
+              <Avatar name={f.displayName} url={f.avatarUrl || undefined} presence={f.presence} />
+
               <div className="min-w-0">
                 <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
                   {f.displayName}
                   {f.username === FOUNDER_USERNAME && <VerifiedBadge username={f.username} size={14} />}
                 </p>
                 {f.username && <p className="text-xs text-zinc-500">@{f.username}</p>}
+                <p className={`text-[11px] ${isPresenceOnline(f.presence) ? 'text-emerald-400' : 'text-zinc-600'}`}>
+                  {presenceText(f.presence)}
+                </p>
               </div>
             </button>
           ))}
@@ -581,6 +694,8 @@ function MessagesPage() {
   }
 
   if (activePartner) {
+    const partnerOnline = isPresenceOnline(activePartner.presence)
+
     return (
       <div className="flex flex-col h-full bg-zinc-950">
         <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
@@ -595,14 +710,22 @@ function MessagesPage() {
             <ArrowLeft size={18} />
           </button>
 
-          <Avatar name={activePartner.displayName} url={activePartner.avatarUrl || undefined} size="w-8 h-8" />
+          <Avatar
+            name={activePartner.displayName}
+            url={activePartner.avatarUrl || undefined}
+            size="w-8 h-8"
+            presence={activePartner.presence}
+          />
 
           <div className="min-w-0">
             <p className="text-sm font-medium text-white truncate flex items-center gap-1.5">
               {activePartner.displayName}
               {activePartner.username === FOUNDER_USERNAME && <VerifiedBadge username={activePartner.username} size={14} />}
             </p>
-            {activePartner.username && <p className="text-xs text-zinc-500">@{activePartner.username}</p>}
+
+            <p className={`text-xs ${partnerOnline ? 'text-emerald-400' : 'text-zinc-500'}`}>
+              {typingName ? `${typingName} is typing...` : presenceText(activePartner.presence)}
+            </p>
           </div>
         </div>
 
@@ -626,6 +749,7 @@ function MessagesPage() {
                     name={isOwn ? 'You' : activePartner.displayName}
                     url={(isOwn ? undefined : activePartner.avatarUrl) || msg.senderAvatarUrl || undefined}
                     size="w-8 h-8"
+                    presence={!isOwn ? activePartner.presence : undefined}
                   />
                 )}
 
@@ -739,7 +863,7 @@ function MessagesPage() {
             onClick={() => openConversation(conv)}
             className="w-full flex items-center gap-3 px-5 py-3.5 border-b border-zinc-900 hover:bg-zinc-900/50 transition-colors text-left"
           >
-            <Avatar name={conv.displayName} url={conv.avatarUrl || undefined} />
+            <Avatar name={conv.displayName} url={conv.avatarUrl || undefined} presence={conv.presence} />
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between">
@@ -765,6 +889,10 @@ function MessagesPage() {
                   </span>
                 )}
               </div>
+
+              <p className={`text-[11px] mt-0.5 ${isPresenceOnline(conv.presence) ? 'text-emerald-400' : 'text-zinc-600'}`}>
+                {presenceText(conv.presence)}
+              </p>
             </div>
           </button>
         ))}
