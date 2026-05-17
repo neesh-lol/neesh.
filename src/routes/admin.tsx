@@ -294,7 +294,46 @@ function AdminPage() {
     setActionLoading('')
   }
 
-  const banUser = async (userId: string | null) => {
+const banUser = async (userId: string | null) => {
+  if (!userId) return
+
+  const target = profiles[userId]
+
+  if (target?.username === 'ceo') {
+    setMsg('You cannot ban the founder account.')
+    return
+  }
+
+  const reason = prompt('Ban reason:')
+  if (reason === null) return
+
+  setActionLoading(userId)
+  setMsg('')
+
+  const { error } = await supabase
+    .from('user_bans')
+    .upsert(
+      {
+        user_id: userId,
+        reason: reason.trim() || 'Banned by admin',
+        banned_by: user?.id ?? null,
+        active: true,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: 'user_id',
+      }
+    )
+
+  if (error) {
+    console.error('Ban user error:', error)
+    setMsg(`Ban failed: ${error.message}`)
+  } else {
+    setMsg('User banned. They will be redirected to the banned page.')
+  }
+
+  setActionLoading('')
+}
     if (!userId) return
 
     const target = profiles[userId]
