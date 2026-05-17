@@ -299,53 +299,7 @@ function AdminPage() {
     setActionLoading('')
   }
 
-const banUser = async (userId: string | null) => {
-  if (!userId) return
-
-  const target = profiles[userId]
-
-  if (target?.username === 'ceo') {
-    setMsg('You cannot ban the founder account.')
-    return
-  }
-
-  const reason = prompt('Ban reason:')
-  if (reason === null) return
-
-  setActionLoading(userId)
-  setMsg('')
-
-  const { error: deleteError } = await supabase
-    .from('user_bans')
-    .delete()
-    .eq('user_id', userId)
-
-  if (deleteError) {
-    console.error('Clear old ban error:', deleteError)
-    setMsg(`Ban failed while clearing old ban: ${deleteError.message}`)
-    setActionLoading('')
-    return
-  }
-
-  const { error: insertError } = await supabase
-    .from('user_bans')
-    .insert({
-      user_id: userId,
-      reason: reason.trim() || 'Banned by admin',
-      banned_by: user?.id ?? null,
-      active: true,
-      updated_at: new Date().toISOString(),
-    })
-
-  if (insertError) {
-    console.error('Ban user error:', insertError)
-    setMsg(`Ban failed: ${insertError.message}`)
-  } else {
-    setMsg('User banned. They will be redirected to the banned page.')
-  }
-
-  setActionLoading('')
-}
+  const banUser = async (userId: string | null) => {
     if (!userId) return
 
     const target = profiles[userId]
@@ -361,24 +315,31 @@ const banUser = async (userId: string | null) => {
     setActionLoading(userId)
     setMsg('')
 
-    const { error } = await supabase
+    const { error: deleteError } = await supabase
       .from('user_bans')
-      .upsert(
-        {
-          user_id: userId,
-          reason: reason.trim() || 'Banned by admin',
-          banned_by: user?.id ?? null,
-          active: true,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'user_id',
-        }
-      )
+      .delete()
+      .eq('user_id', userId)
 
-    if (error) {
-      console.error('Ban user error:', error)
-      setMsg(`Ban failed: ${error.message}`)
+    if (deleteError) {
+      console.error('Clear old ban error:', deleteError)
+      setMsg(`Ban failed while clearing old ban: ${deleteError.message}`)
+      setActionLoading('')
+      return
+    }
+
+    const { error: insertError } = await supabase
+      .from('user_bans')
+      .insert({
+        user_id: userId,
+        reason: reason.trim() || 'Banned by admin',
+        banned_by: user?.id ?? null,
+        active: true,
+        updated_at: new Date().toISOString(),
+      })
+
+    if (insertError) {
+      console.error('Ban user error:', insertError)
+      setMsg(`Ban failed: ${insertError.message}`)
     } else {
       setMsg('User banned. They will be redirected to the banned page.')
     }
