@@ -402,10 +402,7 @@ function SongWarsPage() {
     setLobbyName('')
     setActionLoading('')
 
-    navigate({
-      to: '/songwars/lobby/$lobbyId',
-      params: { lobbyId: lobby.id },
-    })
+    window.location.href = `/songwars/lobby/${lobby.id}`
   }
 
   const joinLobby = async (lobbyId: string) => {
@@ -480,10 +477,7 @@ function SongWarsPage() {
     setJoinCode('')
     setActionLoading('')
 
-    navigate({
-      to: '/songwars/lobby/$lobbyId',
-      params: { lobbyId },
-    })
+    window.location.href = `/songwars/lobby/${lobbyId}`
   }
 
   const joinByCode = async () => {
