@@ -392,6 +392,29 @@ function FriendsPage() {
     setIsFollowing(!!data)
   }
 
+  const loadBanStatus = async (profileId: string) => {
+    const { data, error } = await supabase
+      .from('user_bans')
+      .select('*')
+      .eq('user_id', profileId)
+      .eq('active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      console.error('Load ban status error:', error)
+      setBanStatus({ banned: false, ban: null })
+      return
+    }
+
+    const activeBan = data?.[0] ?? null
+
+    setBanStatus({
+      banned: !!activeBan,
+      ban: activeBan,
+    })
+  }
+
   const getFriendshipStatus = async (profileId: string) => {
     if (!user) return { status: null as string | null, direction: null as string | null }
 
@@ -491,7 +514,7 @@ function FriendsPage() {
 
     setViewingProfile(mappedProfile)
     setAdminMsg('')
-    setBanStatus(null)
+    await loadBanStatus(p.id)
 
     if (p.id) {
       await loadFollowCounts(p.id)
@@ -645,6 +668,79 @@ function FriendsPage() {
     } else {
       setAdminMsg('NEESH.+ revoked')
       setViewingProfile((p) => p ? { ...p, isPremium: false, isFounderOverride: false } : p)
+    }
+
+    setAdminLoading(false)
+  }
+
+  const banUserFromProfile = async (profileId: string) => {
+    if (!user || !profileId) return
+
+    if (viewingProfile?.username === FOUNDER_USERNAME) {
+      setAdminMsg('You cannot ban the founder account.')
+      return
+    }
+
+    const reason = prompt('Ban reason:')
+    if (reason === null) return
+
+    setAdminLoading(true)
+    setAdminMsg('')
+
+    const { error } = await supabase
+      .from('user_bans')
+      .upsert(
+        {
+          user_id: profileId,
+          reason: reason.trim() || 'Banned by admin',
+          banned_by: user.id,
+          active: true,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'user_id',
+        }
+      )
+
+    if (error) {
+      console.error('Profile ban error:', error)
+      setAdminMsg(`Failed to ban user: ${error.message}`)
+    } else {
+      setBanStatus({
+        banned: true,
+        ban: {
+          reason: reason.trim() || 'Banned by admin',
+          active: true,
+        },
+      })
+      setAdminMsg('User banned. They will be redirected to the banned page.')
+    }
+
+    setAdminLoading(false)
+  }
+
+  const unbanUserFromProfile = async (profileId: string) => {
+    if (!profileId) return
+
+    if (!confirm(`Unban ${viewingProfile?.displayName ?? 'this user'}?`)) return
+
+    setAdminLoading(true)
+    setAdminMsg('')
+
+    const { error } = await supabase
+      .from('user_bans')
+      .update({
+        active: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', profileId)
+
+    if (error) {
+      console.error('Profile unban error:', error)
+      setAdminMsg(`Failed to unban user: ${error.message}`)
+    } else {
+      setBanStatus({ banned: false, ban: null })
+      setAdminMsg('User unbanned.')
     }
 
     setAdminLoading(false)
@@ -907,11 +1003,8 @@ function FriendsPage() {
                     <button
                       disabled={adminLoading}
                       onClick={async () => {
-                        if (!confirm(`Unban ${p.displayName}?`)) return
-                        setAdminLoading(true)
-                        setBanStatus({ banned: false, ban: null })
-                        setAdminMsg('User unbanned')
-                        setAdminLoading(false)
+                        if (!p.netlifyId) return
+                        await unbanUserFromProfile(p.netlifyId)
                       }}
                       className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-lg text-xs font-medium hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
                     >
@@ -921,12 +1014,8 @@ function FriendsPage() {
                     <button
                       disabled={adminLoading}
                       onClick={async () => {
-                        const reason = prompt('Ban reason (optional):')
-                        if (reason === null) return
-                        setAdminLoading(true)
-                        setBanStatus({ banned: true, ban: { reason, permanent: false } })
-                        setAdminMsg('User banned')
-                        setAdminLoading(false)
+                        if (!p.netlifyId) return
+                        await banUserFromProfile(p.netlifyId)
                       }}
                       className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-50"
                     >
