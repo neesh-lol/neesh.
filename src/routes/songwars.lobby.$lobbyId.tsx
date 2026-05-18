@@ -12,6 +12,8 @@ import {
   RefreshCcw,
   CheckCircle,
   Trophy,
+  XCircle,
+  LogOut,
 } from 'lucide-react'
 
 export const Route = createFileRoute('/songwars/lobby/$lobbyId')({
@@ -70,7 +72,7 @@ function statusLabel(status: string) {
   if (status === 'waiting') return 'Waiting'
   if (status === 'genreVoting') return 'Genre Voting'
   if (status === 'inMatch') return 'In Match'
-  if (status === 'finished') return 'Finished'
+  if (status === 'finished') return 'Closed'
   return status
 }
 
@@ -96,6 +98,7 @@ function SongWarsLobbyPage() {
   const isHost = !!user && !!lobby && lobby.host_id === user.id
   const isInLobby = !!user && players.some((p) => p.user_id === user.id)
   const myVote = user ? votes.find((v) => v.user_id === user.id) : null
+  const canStartNow = isHost && lobby?.status === 'waiting' && players.length >= 2
 
   const voteCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -235,6 +238,12 @@ function SongWarsLobbyPage() {
     setActionLoading('join')
     setMessage('')
 
+    if (lobby.status === 'finished') {
+      setMessage('This lobby is closed.')
+      setActionLoading('')
+      return
+    }
+
     if (players.length >= lobby.max_players) {
       setMessage('This lobby is full.')
       setActionLoading('')
@@ -262,7 +271,13 @@ function SongWarsLobbyPage() {
 
   const leaveLobby = async () => {
     if (!user) return
-    if (!confirm('Leave this Song Wars lobby?')) return
+
+    if (isHost) {
+      setMessage('Hosts can close the lobby instead of leaving.')
+      return
+    }
+
+    if (!confirm('Leave this Song Wars queue?')) return
 
     setActionLoading('leave')
     setMessage('')
@@ -283,11 +298,54 @@ function SongWarsLobbyPage() {
     navigate({ to: '/songwars' })
   }
 
+  const closeLobby = async () => {
+    if (!isHost) return
+
+    if (!confirm('Close this lobby? Everyone will be sent back to Song Wars.')) return
+
+    setActionLoading('close')
+    setMessage('')
+
+    const { error } = await supabase
+      .from('songwars_lobbies')
+      .update({
+        status: 'finished',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', lobbyId)
+
+    if (error) {
+      console.error('Close lobby error:', error)
+      setMessage(error.message)
+      setActionLoading('')
+      return
+    }
+
+    setMessage('Lobby closed.')
+    setActionLoading('')
+    navigate({ to: '/songwars' })
+  }
+
   const startGenreVoting = async () => {
     if (!isHost) return
 
     setActionLoading('genreVoting')
     setMessage('')
+
+    if (players.length < 2) {
+      setMessage('You need at least 2 players to start.')
+      setActionLoading('')
+      return
+    }
+
+    const { error: deleteVotesError } = await supabase
+      .from('songwars_genre_votes')
+      .delete()
+      .eq('lobby_id', lobbyId)
+
+    if (deleteVotesError) {
+      console.error('Clear old genre votes error:', deleteVotesError)
+    }
 
     const { error } = await supabase
       .from('songwars_lobbies')
@@ -401,12 +459,18 @@ function SongWarsLobbyPage() {
     )
   }
 
-  if (!lobby) {
+  if (!lobby || lobby.status === 'finished') {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-zinc-950 px-5 text-center">
         <Music2 size={32} className="text-zinc-700 mb-3" />
-        <h1 className="text-lg font-semibold text-white mb-1">Lobby not found</h1>
-        <p className="text-sm text-zinc-500 mb-4">This Song Wars lobby does not exist.</p>
+        <h1 className="text-lg font-semibold text-white mb-1">
+          {lobby?.status === 'finished' ? 'Lobby closed' : 'Lobby not found'}
+        </h1>
+        <p className="text-sm text-zinc-500 mb-4">
+          {lobby?.status === 'finished'
+            ? 'The host closed this Song Wars lobby.'
+            : 'This Song Wars lobby does not exist.'}
+        </p>
         <button
           onClick={() => navigate({ to: '/songwars' })}
           className="px-4 py-2 bg-white text-zinc-950 rounded-lg text-sm font-semibold"
@@ -469,6 +533,9 @@ function SongWarsLobbyPage() {
                   <p className="text-sm text-zinc-500 mt-1">
                     Active genre: {lobby.active_genre ?? 'Not chosen yet'}
                   </p>
+                  <p className="text-xs text-zinc-600 mt-1">
+                    {players.length}/{lobby.max_players ?? 20} players · minimum 2 to start
+                  </p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -482,24 +549,36 @@ function SongWarsLobbyPage() {
                     </button>
                   )}
 
-                  {isInLobby && (
+                  {isInLobby && !isHost && (
                     <button
                       onClick={leaveLobby}
                       disabled={!!actionLoading}
-                      className="px-4 py-2.5 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-xl text-sm font-semibold hover:text-white transition-colors disabled:opacity-50"
+                      className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 border border-zinc-700 text-zinc-300 rounded-xl text-sm font-semibold hover:text-white transition-colors disabled:opacity-50"
                     >
-                      Leave
+                      <LogOut size={15} />
+                      Leave Queue
                     </button>
                   )}
 
-                  {isHost && lobby.status === 'waiting' && players.length >= 2 && (
+                  {isHost && (
+                    <button
+                      onClick={closeLobby}
+                      disabled={!!actionLoading}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl text-sm font-semibold hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                    >
+                      <XCircle size={15} />
+                      Close Lobby
+                    </button>
+                  )}
+
+                  {isHost && lobby.status === 'waiting' && (
                     <button
                       onClick={startGenreVoting}
-                      disabled={!!actionLoading}
-                      className="flex items-center gap-2 px-4 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-semibold hover:bg-purple-600 transition-colors disabled:opacity-50"
+                      disabled={!!actionLoading || players.length < 2}
+                      className="flex items-center gap-2 px-4 py-2.5 bg-purple-500 text-white rounded-xl text-sm font-semibold hover:bg-purple-600 transition-colors disabled:opacity-40"
                     >
-                      <Vote size={15} />
-                      Start Genre Vote
+                      <Play size={15} />
+                      Start Now
                     </button>
                   )}
 
@@ -509,7 +588,7 @@ function SongWarsLobbyPage() {
                       disabled={!!actionLoading}
                       className="flex items-center gap-2 px-4 py-2.5 bg-white text-zinc-950 rounded-xl text-sm font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
                     >
-                      <Play size={15} />
+                      <Vote size={15} />
                       Finish Vote
                     </button>
                   )}
@@ -518,7 +597,7 @@ function SongWarsLobbyPage() {
 
               {isHost && lobby.status === 'waiting' && players.length < 2 && (
                 <p className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded-xl px-3 py-2 mt-4">
-                  Need at least 2 players to start genre voting.
+                  Start Now unlocks when at least 2 players are in the lobby.
                 </p>
               )}
 
@@ -551,7 +630,7 @@ function SongWarsLobbyPage() {
 
               {lobby.status === 'waiting' ? (
                 <div className="p-5 text-sm text-zinc-500">
-                  Waiting for host to start genre voting.
+                  Waiting for host to press Start Now.
                 </div>
               ) : (
                 <div className="p-5 grid sm:grid-cols-2 gap-3">
