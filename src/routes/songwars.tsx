@@ -85,7 +85,7 @@ function statusLabel(status: string) {
   if (status === 'waiting') return 'Waiting'
   if (status === 'genreVoting') return 'Genre Voting'
   if (status === 'inMatch') return 'In Match'
-  if (status === 'finished') return 'Finished'
+  if (status === 'finished') return 'Closed'
   return status
 }
 
@@ -304,11 +304,16 @@ function SongWarsPage() {
 
     const { error: joinError } = await supabase
       .from('songwars_lobby_players')
-      .upsert({
-        lobby_id: lobby.id,
-        user_id: user.id,
-        eliminated: false,
-      })
+      .upsert(
+        {
+          lobby_id: lobby.id,
+          user_id: user.id,
+          eliminated: false,
+        },
+        {
+          onConflict: 'lobby_id,user_id',
+        }
+      )
 
     if (joinError) {
       console.error('Auto-join lobby error:', joinError)
@@ -348,7 +353,7 @@ function SongWarsPage() {
     }
 
     if (lobby.status === 'finished') {
-      setMessage('This lobby is already finished.')
+      setMessage('This lobby is already closed.')
       setActionLoading('')
       return
     }
@@ -373,11 +378,16 @@ function SongWarsPage() {
 
     const { error } = await supabase
       .from('songwars_lobby_players')
-      .upsert({
-        lobby_id: lobbyId,
-        user_id: user.id,
-        eliminated: false,
-      })
+      .upsert(
+        {
+          lobby_id: lobbyId,
+          user_id: user.id,
+          eliminated: false,
+        },
+        {
+          onConflict: 'lobby_id,user_id',
+        }
+      )
 
     if (error) {
       console.error('Join lobby error:', error)
@@ -649,8 +659,7 @@ function SongWarsPage() {
                 Coming Next
               </h3>
               <div className="space-y-2 text-xs text-zinc-500">
-                <p>• Lobby room page</p>
-                <p>• Genre voting</p>
+                <p>• Genre voting room</p>
                 <p>• 1v1 match setup</p>
                 <p>• Song submission</p>
                 <p>• Voting + ELO updates</p>
