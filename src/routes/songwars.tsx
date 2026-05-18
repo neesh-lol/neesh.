@@ -402,7 +402,7 @@ function SongWarsPage() {
     setLobbyName('')
     setActionLoading('')
 
-    window.location.href = `/songwars/lobby/${lobby.id}`
+    window.location.assign(`/songwars/lobby/${lobby.id}`)
   }
 
   const joinLobby = async (lobbyId: string) => {
@@ -477,7 +477,7 @@ function SongWarsPage() {
     setJoinCode('')
     setActionLoading('')
 
-    window.location.href = `/songwars/lobby/${lobbyId}`
+    window.location.assign(`/songwars/lobby/${lobbyId}`)
   }
 
   const joinByCode = async () => {
@@ -711,17 +711,22 @@ function SongWarsPage() {
                           </button>
                         )}
 
-                        <button
-                          onClick={() => joinLobby(lobby.id)}
-                          disabled={!!actionLoading || (full && !joined)}
-                          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
-                            joined
-                              ? 'bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white'
-                              : 'bg-white text-zinc-950 hover:bg-zinc-200'
-                          }`}
-                        >
-                          {joined ? 'Enter' : full ? 'Full' : 'Join'}
-                        </button>
+                        {joined ? (
+                          <a
+                            href={`/songwars/lobby/${lobby.id}`}
+                            className="px-4 py-2 rounded-lg text-xs font-semibold transition-colors bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white"
+                          >
+                            Enter
+                          </a>
+                        ) : (
+                          <button
+                            onClick={() => joinLobby(lobby.id)}
+                            disabled={!!actionLoading || full}
+                            className="px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 bg-white text-zinc-950 hover:bg-zinc-200"
+                          >
+                            {full ? 'Full' : 'Join'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   )
