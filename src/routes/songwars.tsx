@@ -142,7 +142,7 @@ function SongWarsPage() {
           peak_elo: 1200,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'user_id' }
+        { onConflict: 'user_id' },
       )
       .select()
       .single()
@@ -193,7 +193,10 @@ function SongWarsPage() {
 
         for (const p of (players ?? []) as LobbyPlayerRow[]) {
           counts[p.lobby_id] = (counts[p.lobby_id] ?? 0) + 1
-          if (p.user_id === user.id) mine.add(p.lobby_id)
+
+          if (p.user_id === user.id) {
+            mine.add(p.lobby_id)
+          }
         }
 
         setPlayerCounts(counts)
@@ -227,7 +230,7 @@ function SongWarsPage() {
         },
         () => {
           loadLobbies()
-        }
+        },
       )
       .on(
         'postgres_changes',
@@ -238,7 +241,7 @@ function SongWarsPage() {
         },
         () => {
           loadLobbies()
-        }
+        },
       )
       .on(
         'postgres_changes',
@@ -250,7 +253,7 @@ function SongWarsPage() {
         },
         () => {
           loadStats()
-        }
+        },
       )
       .subscribe()
 
@@ -318,6 +321,11 @@ function SongWarsPage() {
     setMessage(`Lobby created: ${lobby.name}`)
     await loadLobbies()
     setActionLoading('')
+
+    navigate({
+      to: '/songwars/lobby/$lobbyId',
+      params: { lobbyId: lobby.id },
+    })
   }
 
   const joinLobby = async (lobbyId: string) => {
@@ -374,13 +382,19 @@ function SongWarsPage() {
     if (error) {
       console.error('Join lobby error:', error)
       setMessage(error.message)
-    } else {
-      setMessage(`Joined ${lobby.name}. Lobby room page is next.`)
-      setJoinCode('')
-      await loadLobbies()
+      setActionLoading('')
+      return
     }
 
+    setMessage(`Joined ${lobby.name}.`)
+    setJoinCode('')
+    await loadLobbies()
     setActionLoading('')
+
+    navigate({
+      to: '/songwars/lobby/$lobbyId',
+      params: { lobbyId },
+    })
   }
 
   const joinByCode = async () => {
