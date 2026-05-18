@@ -1,5 +1,5 @@
 import { HeadContent, Link, Outlet, Scripts, createRootRoute, useNavigate, useLocation } from '@tanstack/react-router'
-import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown, Bell } from 'lucide-react'
+import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown, Bell, Music2 } from 'lucide-react'
 import { IdentityProvider, useIdentity } from '../lib/identity-context'
 import { CallbackHandler } from '../components/CallbackHandler'
 import { supabase } from '../lib/supabase'
@@ -723,6 +723,7 @@ function SidebarContent({
         <NavItem to="/messages" icon={Mail} label="Messages" onClick={onNavClick} badge={unreadMessages} />
         <NavItem to="/notifications" icon={Bell} label="Notifications" onClick={onNavClick} badge={unreadNotifications} />
         <NavItem to="/challenges" icon={Target} label="Challenges" onClick={onNavClick} />
+        <NavItem to="/songwars" icon={Music2} label="Song Wars" onClick={onNavClick} />
         <NavItem to="/friends" icon={Users} label="Friends" onClick={onNavClick} badge={pendingFriendRequests} />
         <NavItem to="/leaderboard" icon={Trophy} label="Leaderboard" onClick={onNavClick} />
         <div className="my-2 border-t border-zinc-800/50" />
