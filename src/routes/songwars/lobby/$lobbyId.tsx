@@ -228,10 +228,12 @@ function SongWarsLobbyPage() {
     return counts
   }, [votes])
 
-  const loadLobby = async () => {
+  const loadLobby = async (showSpinner = false) => {
     if (!user) return
 
-    setLoading(true)
+    if (showSpinner) {
+      setLoading(true)
+    }
 
     const { data: lobbyData, error: lobbyError } = await supabase
       .from('songwars_lobbies')
@@ -362,7 +364,7 @@ function SongWarsLobbyPage() {
   useEffect(() => {
     if (!user) return
 
-    loadLobby()
+    loadLobby(true)
 
     const channel = supabase
       .channel(`songwars_lobby_${lobbyId}_${user.id}`)
@@ -374,7 +376,7 @@ function SongWarsLobbyPage() {
           table: 'songwars_lobbies',
           filter: `id=eq.${lobbyId}`,
         },
-        () => loadLobby()
+        () => loadLobby(false)
       )
       .on(
         'postgres_changes',
@@ -384,7 +386,7 @@ function SongWarsLobbyPage() {
           table: 'songwars_lobby_players',
           filter: `lobby_id=eq.${lobbyId}`,
         },
-        () => loadLobby()
+        () => loadLobby(false)
       )
       .on(
         'postgres_changes',
@@ -394,7 +396,7 @@ function SongWarsLobbyPage() {
           table: 'songwars_genre_votes',
           filter: `lobby_id=eq.${lobbyId}`,
         },
-        () => loadLobby()
+        () => loadLobby(false)
       )
       .on(
         'postgres_changes',
@@ -404,11 +406,11 @@ function SongWarsLobbyPage() {
           table: 'songwars_matches',
           filter: `lobby_id=eq.${lobbyId}`,
         },
-        () => loadLobby()
+        () => loadLobby(false)
       )
       .subscribe()
 
-    const polling = setInterval(loadLobby, 3000)
+    const polling = setInterval(() => loadLobby(false), 3000)
 
     return () => {
       clearInterval(polling)
@@ -452,7 +454,7 @@ function SongWarsLobbyPage() {
       setMessage(error.message)
     } else {
       setMessage('Joined lobby.')
-      await loadLobby()
+      await loadLobby(false)
     }
 
     setActionLoading('')
@@ -550,7 +552,7 @@ function SongWarsLobbyPage() {
       setMessage(error.message)
     } else {
       setMessage('Genre voting started.')
-      await loadLobby()
+      await loadLobby(false)
     }
 
     setActionLoading('')
@@ -580,7 +582,7 @@ function SongWarsLobbyPage() {
       setMessage(error.message)
     } else {
       setMessage(`Voted for ${genre}.`)
-      await loadLobby()
+      await loadLobby(false)
     }
 
     setActionLoading('')
@@ -634,7 +636,7 @@ function SongWarsLobbyPage() {
       setMessage(error.message)
     } else {
       setMessage(`${activeGenre} won. Start the first match.`)
-      await loadLobby()
+      await loadLobby(false)
     }
 
     setActionLoading('')
@@ -698,7 +700,7 @@ function SongWarsLobbyPage() {
     }
 
     setMessage('Match started. Players can submit songs.')
-    await loadLobby()
+    await loadLobby(false)
     setActionLoading('')
   }
 
@@ -788,7 +790,7 @@ function SongWarsLobbyPage() {
     }
 
     setMessage('Song submitted.')
-    await loadLobby()
+    await loadLobby(false)
     setActionLoading('')
   }
 
@@ -823,7 +825,7 @@ function SongWarsLobbyPage() {
       setMessage(error.message)
     } else {
       setMessage('Vote submitted.')
-      await loadLobby()
+      await loadLobby(false)
     }
 
     setActionLoading('')
@@ -1003,7 +1005,7 @@ function SongWarsLobbyPage() {
 
       await finishMatch(winnerId, loserId)
       setMessage(`${getDisplayName(profiles[winnerId])} won the match.`)
-      await loadLobby()
+      await loadLobby(false)
       setActionLoading('')
       return
     }
@@ -1027,7 +1029,7 @@ function SongWarsLobbyPage() {
       setMessage(error.message)
     } else {
       setMessage(`Round ${currentRound} resolved. Round ${nextRound} started.`)
-      await loadLobby()
+      await loadLobby(false)
     }
 
     setActionLoading('')
@@ -1086,7 +1088,7 @@ function SongWarsLobbyPage() {
         </div>
 
         <button
-          onClick={loadLobby}
+          onClick={() => loadLobby(true)}
           className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
         >
           <RefreshCcw size={14} />
