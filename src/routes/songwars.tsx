@@ -15,6 +15,7 @@ import {
   Swords,
   Radio,
   Medal,
+  XCircle,
 } from 'lucide-react'
 
 export const Route = createFileRoute('/songwars')({
@@ -31,6 +32,7 @@ type LobbyRow = {
   current_champion_id: string | null
   created_at: string
   updated_at: string
+  closed_at?: string | null
 }
 
 type LobbyPlayerRow = {
@@ -39,6 +41,7 @@ type LobbyPlayerRow = {
   user_id: string
   joined_at: string
   eliminated: boolean | null
+  left_at?: string | null
 }
 
 type StatsRow = {
@@ -275,11 +278,85 @@ function SongWarsPage() {
     })
   }, [lobbies, search])
 
+  const leaveOtherActiveLobbies = async () => {
+    if (!user) return
+
+    const { data: activeLobbies, error } = await supabase
+      .from('songwars_lobbies')
+      .select('id,status')
+      .neq('status', 'finished')
+
+    if (error) {
+      console.error('Load active Song Wars lobbies error:', error)
+      return
+    }
+
+    const activeIds = (activeLobbies ?? []).map((l) => l.id)
+
+    if (activeIds.length === 0) return
+
+    const { error: deleteError } = await supabase
+      .from('songwars_lobby_players')
+      .delete()
+      .eq('user_id', user.id)
+      .in('lobby_id', activeIds)
+
+    if (deleteError) {
+      console.error('Leave other Song Wars lobbies error:', deleteError)
+    }
+  }
+
+  const closeLobby = async (lobbyId: string) => {
+    if (!user) return
+
+    if (!confirm('Close this lobby?')) return
+
+    setActionLoading(`close-${lobbyId}`)
+    setMessage('')
+
+    const { error } = await supabase
+      .from('songwars_lobbies')
+      .update({
+        status: 'finished',
+        closed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', lobbyId)
+      .eq('host_id', user.id)
+
+    if (error) {
+      console.error('Close lobby error:', error)
+      setMessage(error.message)
+      setActionLoading('')
+      return
+    }
+
+    setMessage('Lobby closed.')
+    await loadLobbies()
+    setActionLoading('')
+  }
+
   const createLobby = async () => {
     if (!user) return
 
     setActionLoading('create')
     setMessage('')
+
+    await leaveOtherActiveLobbies()
+
+    const { error: closeOldError } = await supabase
+      .from('songwars_lobbies')
+      .update({
+        status: 'finished',
+        closed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('host_id', user.id)
+      .neq('status', 'finished')
+
+    if (closeOldError) {
+      console.error('Close old hosted lobbies error:', closeOldError)
+    }
 
     const cleanName = lobbyName.trim() || 'Song Wars Lobby'
 
@@ -323,8 +400,6 @@ function SongWarsPage() {
     }
 
     setLobbyName('')
-    setMessage(`Lobby created: ${lobby.name}`)
-    await loadLobbies()
     setActionLoading('')
 
     navigate({
@@ -358,47 +433,51 @@ function SongWarsPage() {
       return
     }
 
-    const { count, error: countError } = await supabase
-      .from('songwars_lobby_players')
-      .select('*', { count: 'exact', head: true })
-      .eq('lobby_id', lobbyId)
+    const alreadyJoined = myLobbyIds.has(lobbyId)
 
-    if (countError) {
-      console.error('Lobby count error:', countError)
-      setMessage(countError.message)
-      setActionLoading('')
-      return
+    if (!alreadyJoined) {
+      const { count, error: countError } = await supabase
+        .from('songwars_lobby_players')
+        .select('*', { count: 'exact', head: true })
+        .eq('lobby_id', lobbyId)
+
+      if (countError) {
+        console.error('Lobby count error:', countError)
+        setMessage(countError.message)
+        setActionLoading('')
+        return
+      }
+
+      if ((count ?? 0) >= (lobby.max_players ?? 20)) {
+        setMessage('This lobby is full.')
+        setActionLoading('')
+        return
+      }
+
+      await leaveOtherActiveLobbies()
+
+      const { error } = await supabase
+        .from('songwars_lobby_players')
+        .upsert(
+          {
+            lobby_id: lobbyId,
+            user_id: user.id,
+            eliminated: false,
+          },
+          {
+            onConflict: 'lobby_id,user_id',
+          }
+        )
+
+      if (error) {
+        console.error('Join lobby error:', error)
+        setMessage(error.message)
+        setActionLoading('')
+        return
+      }
     }
 
-    if ((count ?? 0) >= (lobby.max_players ?? 20) && !myLobbyIds.has(lobbyId)) {
-      setMessage('This lobby is full.')
-      setActionLoading('')
-      return
-    }
-
-    const { error } = await supabase
-      .from('songwars_lobby_players')
-      .upsert(
-        {
-          lobby_id: lobbyId,
-          user_id: user.id,
-          eliminated: false,
-        },
-        {
-          onConflict: 'lobby_id,user_id',
-        }
-      )
-
-    if (error) {
-      console.error('Join lobby error:', error)
-      setMessage(error.message)
-      setActionLoading('')
-      return
-    }
-
-    setMessage(`Joined ${lobby.name}.`)
     setJoinCode('')
-    await loadLobbies()
     setActionLoading('')
 
     navigate({
@@ -550,7 +629,7 @@ function SongWarsPage() {
             <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-white">Open Lobbies</h2>
-                <p className="text-xs text-zinc-500">Max 20 players per lobby</p>
+                <p className="text-xs text-zinc-500">You can only be in one lobby at a time</p>
               </div>
 
               <div className="relative w-48">
@@ -580,6 +659,7 @@ function SongWarsPage() {
                   const count = playerCounts[lobby.id] ?? 0
                   const joined = myLobbyIds.has(lobby.id)
                   const full = count >= (lobby.max_players ?? 20)
+                  const isHost = lobby.host_id === user.id
 
                   return (
                     <div
@@ -601,6 +681,12 @@ function SongWarsPage() {
                               Joined
                             </span>
                           )}
+
+                          {isHost && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-300">
+                              Host
+                            </span>
+                          )}
                         </div>
 
                         <p className="text-xs text-zinc-500 truncate">
@@ -619,17 +705,30 @@ function SongWarsPage() {
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => joinLobby(lobby.id)}
-                        disabled={!!actionLoading || (full && !joined)}
-                        className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
-                          joined
-                            ? 'bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white'
-                            : 'bg-white text-zinc-950 hover:bg-zinc-200'
-                        }`}
-                      >
-                        {joined ? 'Rejoin' : full ? 'Full' : 'Join'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {isHost && (
+                          <button
+                            onClick={() => closeLobby(lobby.id)}
+                            disabled={!!actionLoading}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                          >
+                            <XCircle size={13} />
+                            Close
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => joinLobby(lobby.id)}
+                          disabled={!!actionLoading || (full && !joined)}
+                          className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
+                            joined
+                              ? 'bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white'
+                              : 'bg-white text-zinc-950 hover:bg-zinc-200'
+                          }`}
+                        >
+                          {joined ? 'Enter' : full ? 'Full' : 'Join'}
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
