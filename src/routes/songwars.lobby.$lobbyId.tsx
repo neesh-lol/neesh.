@@ -98,7 +98,6 @@ function SongWarsLobbyPage() {
   const isHost = !!user && !!lobby && lobby.host_id === user.id
   const isInLobby = !!user && players.some((p) => p.user_id === user.id)
   const myVote = user ? votes.find((v) => v.user_id === user.id) : null
-  const canStartNow = isHost && lobby?.status === 'waiting' && players.length >= 2
 
   const voteCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -244,7 +243,7 @@ function SongWarsLobbyPage() {
       return
     }
 
-    if (players.length >= lobby.max_players) {
+    if (players.length >= lobby.max_players && !isInLobby) {
       setMessage('This lobby is full.')
       setActionLoading('')
       return
@@ -252,11 +251,16 @@ function SongWarsLobbyPage() {
 
     const { error } = await supabase
       .from('songwars_lobby_players')
-      .upsert({
-        lobby_id: lobbyId,
-        user_id: user.id,
-        eliminated: false,
-      })
+      .upsert(
+        {
+          lobby_id: lobbyId,
+          user_id: user.id,
+          eliminated: false,
+        },
+        {
+          onConflict: 'lobby_id,user_id',
+        }
+      )
 
     if (error) {
       console.error('Join lobby error:', error)
