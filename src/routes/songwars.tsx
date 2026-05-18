@@ -142,7 +142,7 @@ function SongWarsPage() {
           peak_elo: 1200,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'user_id' },
+        { onConflict: 'user_id' }
       )
       .select()
       .single()
@@ -230,7 +230,7 @@ function SongWarsPage() {
         },
         () => {
           loadLobbies()
-        },
+        }
       )
       .on(
         'postgres_changes',
@@ -241,7 +241,7 @@ function SongWarsPage() {
         },
         () => {
           loadLobbies()
-        },
+        }
       )
       .on(
         'postgres_changes',
@@ -253,7 +253,7 @@ function SongWarsPage() {
         },
         () => {
           loadStats()
-        },
+        }
       )
       .subscribe()
 
@@ -572,13 +572,20 @@ function SongWarsPage() {
                   const full = count >= (lobby.max_players ?? 20)
 
                   return (
-                    <div key={lobby.id} className="px-5 py-4 flex items-center justify-between gap-4 hover:bg-zinc-950/40 transition-colors">
+                    <div
+                      key={lobby.id}
+                      className="px-5 py-4 flex items-center justify-between gap-4 hover:bg-zinc-950/40 transition-colors"
+                    >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <p className="text-sm font-semibold text-white truncate">{lobby.name}</p>
+                          <p className="text-sm font-semibold text-white truncate">
+                            {lobby.name}
+                          </p>
+
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400">
                             {statusLabel(lobby.status)}
                           </span>
+
                           {joined && (
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300">
                               Joined
