@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useMemo, useState } from 'react'
@@ -95,6 +95,9 @@ function statusLabel(status: string) {
 function SongWarsPage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  const isLobbyChild = location.pathname.startsWith('/songwars/lobby/')
 
   const [stats, setStats] = useState<StatsRow | null>(null)
   const [lobbies, setLobbies] = useState<LobbyRow[]>([])
@@ -218,7 +221,7 @@ function SongWarsPage() {
   }
 
   useEffect(() => {
-    if (!user) return
+    if (!user || isLobbyChild) return
 
     loadAll()
 
@@ -263,7 +266,7 @@ function SongWarsPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [user])
+  }, [user, isLobbyChild])
 
   const filteredLobbies = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -484,6 +487,10 @@ function SongWarsPage() {
     const clean = joinCode.trim()
     if (!clean) return
     await joinLobby(clean)
+  }
+
+  if (isLobbyChild) {
+    return <Outlet />
   }
 
   if (!ready || !user) {
