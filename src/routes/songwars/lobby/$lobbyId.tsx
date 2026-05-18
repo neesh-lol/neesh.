@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Music2,
@@ -18,6 +18,8 @@ import {
   Link as LinkIcon,
   Flame,
   Zap,
+  Upload,
+  Volume2,
 } from 'lucide-react'
 
 export const Route = createFileRoute('/songwars/lobby/$lobbyId')({
@@ -73,6 +75,10 @@ type MatchRow = {
   player_a_rounds: number
   player_b_rounds: number
   winner_id: string | null
+  submit_deadline_at: string | null
+  listening_started_at: string | null
+  listening_player: string | null
+  listening_ends_at: string | null
   created_at: string
   updated_at: string
 }
@@ -132,6 +138,7 @@ function statusLabel(status: string) {
 
 function matchStatusLabel(status: string) {
   if (status === 'submitting') return 'Song Submissions'
+  if (status === 'listening') return 'Listening'
   if (status === 'voting') return 'Voting'
   if (status === 'finished') return 'Finished'
   return status
@@ -151,10 +158,27 @@ function getDisplayName(profile?: ProfileRow) {
   return profile.display_name || profile.username || 'User'
 }
 
+function secondsBetween(start: number, end: number) {
+  return Math.max(0, end - start)
+}
+
+function formatTime(totalSeconds: number) {
+  const safe = Math.max(0, Math.floor(totalSeconds))
+  const minutes = Math.floor(safe / 60)
+  const seconds = safe % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+function getFileExt(fileName: string) {
+  const parts = fileName.split('.')
+  return parts.length > 1 ? parts.pop()?.toLowerCase() || 'mp3' : 'mp3'
+}
+
 function SongWarsLobbyPage() {
   const { lobbyId } = Route.useParams()
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const [lobby, setLobby] = useState<LobbyRow | null>(null)
   const [players, setPlayers] = useState<LobbyPlayerRow[]>([])
@@ -169,14 +193,22 @@ function SongWarsLobbyPage() {
 
   const [songTitle, setSongTitle] = useState('')
   const [songUrl, setSongUrl] = useState('')
+  const [songFile, setSongFile] = useState<File | null>(null)
   const [startTimestamp, setStartTimestamp] = useState('0')
   const [endTimestamp, setEndTimestamp] = useState('30')
+  const [nowTick, setNowTick] = useState(Date.now())
+  const [audioError, setAudioError] = useState('')
 
   useEffect(() => {
     if (ready && !user) {
       navigate({ to: '/signin' })
     }
   }, [ready, user, navigate])
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const isHost = !!user && !!lobby && lobby.host_id === user.id
   const isInLobby = !!user && players.some((p) => p.user_id === user.id)
@@ -213,6 +245,28 @@ function SongWarsLobbyPage() {
   const playerBVotes = match
     ? songVotes.filter((v) => v.voted_for_id === match.player_b_id && v.round_number === currentRound).length
     : 0
+
+  const submitTimeLeft = match?.submit_deadline_at
+    ? Math.max(0, Math.ceil((new Date(match.submit_deadline_at).getTime() - nowTick) / 1000))
+    : 0
+
+  const listeningTimeLeft = match?.listening_ends_at
+    ? Math.max(0, Math.ceil((new Date(match.listening_ends_at).getTime() - nowTick) / 1000))
+    : 0
+
+  const listeningSubmission =
+    match?.listening_player === 'A'
+      ? playerASubmission
+      : match?.listening_player === 'B'
+        ? playerBSubmission
+        : null
+
+  const listeningProfile =
+    match?.listening_player === 'A'
+      ? playerAProfile
+      : match?.listening_player === 'B'
+        ? playerBProfile
+        : undefined
 
   const voteCounts = useMemo(() => {
     const counts: Record<string, number> = {}
@@ -417,6 +471,50 @@ function SongWarsLobbyPage() {
       supabase.removeChannel(channel)
     }
   }, [user, lobbyId])
+
+  useEffect(() => {
+    if (match?.status !== 'listening' || !listeningSubmission || !audioRef.current) return
+
+    const audio = audioRef.current
+    setAudioError('')
+    audio.src = listeningSubmission.song_url
+    audio.currentTime = listeningSubmission.start_timestamp
+    audio.volume = 1
+
+    const playPromise = audio.play()
+
+    if (playPromise) {
+      playPromise.catch(() => {
+        setAudioError('Click Play Audio to hear this clip. Some browsers block automatic playback.')
+      })
+    }
+  }, [match?.status, match?.listening_player, listeningSubmission?.id])
+
+  useEffect(() => {
+    if (!isHost || !match) return
+
+    const interval = setInterval(async () => {
+      if (!match) return
+
+      if (match.status === 'submitting' && match.submit_deadline_at) {
+        const deadlinePassed = Date.now() >= new Date(match.submit_deadline_at).getTime()
+
+        if (deadlinePassed && playerASubmission && playerBSubmission) {
+          await startListening()
+        }
+      }
+
+      if (match.status === 'listening' && match.listening_ends_at) {
+        const ended = Date.now() >= new Date(match.listening_ends_at).getTime()
+
+        if (ended) {
+          await advanceListening()
+        }
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isHost, match, playerASubmission, playerBSubmission])
 
   const joinLobby = async () => {
     if (!user || !lobby) return
@@ -675,6 +773,8 @@ function SongWarsLobbyPage() {
       return
     }
 
+    const submitDeadline = new Date(Date.now() + 5 * 60 * 1000).toISOString()
+
     const { data: newMatch, error } = await supabase
       .from('songwars_matches')
       .insert({
@@ -687,6 +787,10 @@ function SongWarsLobbyPage() {
         current_round: 1,
         player_a_rounds: 0,
         player_b_rounds: 0,
+        submit_deadline_at: submitDeadline,
+        listening_started_at: null,
+        listening_player: null,
+        listening_ends_at: null,
         updated_at: new Date().toISOString(),
       })
       .select()
@@ -699,9 +803,90 @@ function SongWarsLobbyPage() {
       return
     }
 
-    setMessage('Match started. Players can submit songs.')
+    setMessage('Match started. Players have 5 minutes to submit songs.')
     await loadLobby(false)
     setActionLoading('')
+  }
+
+  const uploadSongFile = async () => {
+    if (!songFile || !match || !user) return null
+
+    const ext = getFileExt(songFile.name)
+    const safeName = `${match.id}/round-${currentRound}/${user.id}-${Date.now()}.${ext}`
+
+    const { error: uploadError } = await supabase.storage
+      .from('songwars-submissions')
+      .upload(safeName, songFile, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: songFile.type || (ext === 'wav' ? 'audio/wav' : 'audio/mpeg'),
+      })
+
+    if (uploadError) {
+      throw uploadError
+    }
+
+    const { data } = supabase.storage
+      .from('songwars-submissions')
+      .getPublicUrl(safeName)
+
+    return data.publicUrl
+  }
+
+  const startListening = async () => {
+    if (!match || !playerASubmission) return
+
+    const duration = secondsBetween(playerASubmission.start_timestamp, playerASubmission.end_timestamp)
+    const now = new Date()
+    const endsAt = new Date(now.getTime() + duration * 1000).toISOString()
+
+    await supabase
+      .from('songwars_matches')
+      .update({
+        status: 'listening',
+        listening_started_at: now.toISOString(),
+        listening_player: 'A',
+        listening_ends_at: endsAt,
+        updated_at: now.toISOString(),
+      })
+      .eq('id', match.id)
+
+    await loadLobby(false)
+  }
+
+  const advanceListening = async () => {
+    if (!match) return
+
+    if (match.listening_player === 'A' && playerBSubmission) {
+      const duration = secondsBetween(playerBSubmission.start_timestamp, playerBSubmission.end_timestamp)
+      const now = new Date()
+      const endsAt = new Date(now.getTime() + duration * 1000).toISOString()
+
+      await supabase
+        .from('songwars_matches')
+        .update({
+          listening_player: 'B',
+          listening_started_at: now.toISOString(),
+          listening_ends_at: endsAt,
+          updated_at: now.toISOString(),
+        })
+        .eq('id', match.id)
+
+      await loadLobby(false)
+      return
+    }
+
+    await supabase
+      .from('songwars_matches')
+      .update({
+        status: 'voting',
+        listening_player: null,
+        listening_ends_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', match.id)
+
+    await loadLobby(false)
   }
 
   const submitSong = async () => {
@@ -710,14 +895,13 @@ function SongWarsLobbyPage() {
     setActionLoading('submitSong')
     setMessage('')
 
-    const cleanUrl = songUrl.trim()
-    const cleanTitle = songTitle.trim() || 'Untitled song'
+    const cleanTitle = songTitle.trim() || songFile?.name || 'Untitled song'
     const start = Number(startTimestamp)
     const end = Number(endTimestamp)
     const length = end - start
 
-    if (!cleanUrl) {
-      setMessage('Paste a song link first.')
+    if (!songFile && !songUrl.trim()) {
+      setMessage('Upload an MP3/WAV file or paste a direct song link.')
       setActionLoading('')
       return
     }
@@ -740,57 +924,88 @@ function SongWarsLobbyPage() {
       return
     }
 
-    const { error } = await supabase
-      .from('songwars_submissions')
-      .upsert(
-        {
-          match_id: match.id,
-          round_number: currentRound,
-          user_id: user.id,
-          song_title: cleanTitle,
-          song_url: cleanUrl,
-          source_type: 'link',
-          start_timestamp: start,
-          end_timestamp: end,
-        },
-        {
-          onConflict: 'match_id,round_number,user_id',
+    if (songFile) {
+      const lower = songFile.name.toLowerCase()
+      if (!lower.endsWith('.mp3') && !lower.endsWith('.wav')) {
+        setMessage('Only MP3 and WAV uploads are allowed.')
+        setActionLoading('')
+        return
+      }
+    }
+
+    try {
+      const uploadedUrl = songFile ? await uploadSongFile() : null
+      const finalUrl = uploadedUrl || songUrl.trim()
+      const sourceType = songFile ? 'upload' : 'link'
+
+      const { error } = await supabase
+        .from('songwars_submissions')
+        .upsert(
+          {
+            match_id: match.id,
+            round_number: currentRound,
+            user_id: user.id,
+            song_title: cleanTitle,
+            song_url: finalUrl,
+            source_type: sourceType,
+            start_timestamp: start,
+            end_timestamp: end,
+          },
+          {
+            onConflict: 'match_id,round_number,user_id',
+          }
+        )
+
+      if (error) {
+        console.error('Submit song error:', error)
+        setMessage(error.message)
+        setActionLoading('')
+        return
+      }
+
+      setSongTitle('')
+      setSongUrl('')
+      setSongFile(null)
+      setStartTimestamp('0')
+      setEndTimestamp('30')
+
+      const { data: allSubs } = await supabase
+        .from('songwars_submissions')
+        .select('*')
+        .eq('match_id', match.id)
+        .eq('round_number', currentRound)
+
+      const hasA = (allSubs ?? []).some((s) => s.user_id === match.player_a_id)
+      const hasB = (allSubs ?? []).some((s) => s.user_id === match.player_b_id)
+
+      if (hasA && hasB) {
+        const aSub = (allSubs ?? []).find((s) => s.user_id === match.player_a_id)
+
+        if (aSub) {
+          const duration = secondsBetween(aSub.start_timestamp, aSub.end_timestamp)
+          const now = new Date()
+          const endsAt = new Date(now.getTime() + duration * 1000).toISOString()
+
+          await supabase
+            .from('songwars_matches')
+            .update({
+              status: 'listening',
+              listening_started_at: now.toISOString(),
+              listening_player: 'A',
+              listening_ends_at: endsAt,
+              updated_at: now.toISOString(),
+            })
+            .eq('id', match.id)
         }
-      )
+      }
 
-    if (error) {
-      console.error('Submit song error:', error)
-      setMessage(error.message)
-      setActionLoading('')
-      return
+      setMessage('Song submitted.')
+      await loadLobby(false)
+    } catch (error: any) {
+      console.error('Upload song error:', error)
+      setMessage(error?.message ?? 'Could not upload song.')
     }
 
-    setSongTitle('')
-    setSongUrl('')
-    setStartTimestamp('0')
-    setEndTimestamp('30')
-
-    const { data: allSubs } = await supabase
-      .from('songwars_submissions')
-      .select('*')
-      .eq('match_id', match.id)
-      .eq('round_number', currentRound)
-
-    const hasA = (allSubs ?? []).some((s) => s.user_id === match.player_a_id)
-    const hasB = (allSubs ?? []).some((s) => s.user_id === match.player_b_id)
-
-    if (hasA && hasB) {
-      await supabase
-        .from('songwars_matches')
-        .update({
-          status: 'voting',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', match.id)
-    }
-
-    setMessage('Song submitted.')
-    await loadLobby(false)
     setActionLoading('')
   }
 
@@ -968,7 +1183,7 @@ function SongWarsLobbyPage() {
     setMessage('')
 
     if (match.status !== 'voting') {
-      setMessage('Both players need to submit before resolving.')
+      setMessage('Listen phase must finish before resolving.')
       setActionLoading('')
       return
     }
@@ -1011,6 +1226,7 @@ function SongWarsLobbyPage() {
     }
 
     const nextRound = currentRound + 1
+    const submitDeadline = new Date(Date.now() + 5 * 60 * 1000).toISOString()
 
     const { error } = await supabase
       .from('songwars_matches')
@@ -1020,6 +1236,10 @@ function SongWarsLobbyPage() {
         current_round: nextRound,
         player_a_rounds: nextARounds,
         player_b_rounds: nextBRounds,
+        submit_deadline_at: submitDeadline,
+        listening_started_at: null,
+        listening_player: null,
+        listening_ends_at: null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', match.id)
@@ -1033,6 +1253,27 @@ function SongWarsLobbyPage() {
     }
 
     setActionLoading('')
+  }
+
+  const handleAudioTimeUpdate = () => {
+    if (!audioRef.current || !listeningSubmission) return
+
+    if (audioRef.current.currentTime >= listeningSubmission.end_timestamp) {
+      audioRef.current.pause()
+    }
+  }
+
+  const playAudioManually = async () => {
+    if (!audioRef.current || !listeningSubmission) return
+
+    setAudioError('')
+    audioRef.current.currentTime = listeningSubmission.start_timestamp
+
+    try {
+      await audioRef.current.play()
+    } catch {
+      setAudioError('Your browser blocked autoplay. Click play on the audio controls.')
+    }
   }
 
   if (!ready || !user || loading) {
@@ -1264,6 +1505,60 @@ function SongWarsLobbyPage() {
                   </div>
                 </div>
 
+                {match.status === 'submitting' && (
+                  <div className="px-5 py-4 border-b border-zinc-800 bg-purple-500/5">
+                    <p className="text-sm font-semibold text-white">
+                      Submit timer: {formatTime(submitTimeLeft)}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Player A and Player B have 5 minutes to upload or link a song clip.
+                    </p>
+                  </div>
+                )}
+
+                {match.status === 'listening' && listeningSubmission && (
+                  <div className="px-5 py-5 border-b border-zinc-800 bg-zinc-950">
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-wider text-purple-300 mb-1">
+                          Now Playing
+                        </p>
+                        <h3 className="text-lg font-bold text-white">
+                          {getDisplayName(listeningProfile)} · {listeningSubmission.song_title}
+                        </h3>
+                        <p className="text-xs text-zinc-500">
+                          Clip {listeningSubmission.start_timestamp}s - {listeningSubmission.end_timestamp}s · Next phase in {formatTime(listeningTimeLeft)}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={playAudioManually}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-white text-zinc-950 rounded-xl text-sm font-semibold hover:bg-zinc-200 transition-colors"
+                      >
+                        <Volume2 size={15} />
+                        Play Audio
+                      </button>
+                    </div>
+
+                    <audio
+                      ref={audioRef}
+                      controls
+                      onTimeUpdate={handleAudioTimeUpdate}
+                      className="w-full"
+                    />
+
+                    {audioError && (
+                      <p className="text-xs text-yellow-400 mt-3">
+                        {audioError}
+                      </p>
+                    )}
+
+                    <p className="text-xs text-zinc-500 mt-3">
+                      Uploaded MP3/WAV files play directly here. Some outside links may not support in-page playback.
+                    </p>
+                  </div>
+                )}
+
                 <div className="p-5 grid md:grid-cols-2 gap-4">
                   <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
                     <div className="flex items-center gap-3 mb-4">
@@ -1285,7 +1580,7 @@ function SongWarsLobbyPage() {
                       <div className="space-y-3">
                         <p className="text-sm font-medium text-white">{playerASubmission.song_title}</p>
                         <p className="text-xs text-zinc-500">
-                          Clip: {playerASubmission.start_timestamp}s - {playerASubmission.end_timestamp}s
+                          Clip: {playerASubmission.start_timestamp}s - {playerASubmission.end_timestamp}s · {playerASubmission.source_type}
                         </p>
                         <a
                           href={playerASubmission.song_url}
@@ -1294,7 +1589,7 @@ function SongWarsLobbyPage() {
                           className="inline-flex items-center gap-2 text-xs text-purple-300 hover:text-purple-200"
                         >
                           <LinkIcon size={13} />
-                          Open song link
+                          Open song
                         </a>
                       </div>
                     ) : (
@@ -1336,7 +1631,7 @@ function SongWarsLobbyPage() {
                       <div className="space-y-3">
                         <p className="text-sm font-medium text-white">{playerBSubmission.song_title}</p>
                         <p className="text-xs text-zinc-500">
-                          Clip: {playerBSubmission.start_timestamp}s - {playerBSubmission.end_timestamp}s
+                          Clip: {playerBSubmission.start_timestamp}s - {playerBSubmission.end_timestamp}s · {playerBSubmission.source_type}
                         </p>
                         <a
                           href={playerBSubmission.song_url}
@@ -1345,7 +1640,7 @@ function SongWarsLobbyPage() {
                           className="inline-flex items-center gap-2 text-xs text-purple-300 hover:text-purple-200"
                         >
                           <LinkIcon size={13} />
-                          Open song link
+                          Open song
                         </a>
                       </div>
                     ) : (
@@ -1385,11 +1680,28 @@ function SongWarsLobbyPage() {
                       <input
                         value={songUrl}
                         onChange={(e) => setSongUrl(e.target.value)}
-                        placeholder="Song link"
+                        placeholder="Direct song link, optional if uploading"
                         className="md:col-span-2 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
                       />
 
-                      <div className="grid grid-cols-2 gap-2">
+                      <label className="flex items-center justify-center gap-2 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-sm text-zinc-300 hover:text-white cursor-pointer">
+                        <Upload size={15} />
+                        {songFile ? songFile.name.slice(0, 18) : 'Upload MP3/WAV'}
+                        <input
+                          type="file"
+                          accept=".mp3,.wav,audio/mpeg,audio/wav,audio/x-wav"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0] ?? null
+                            setSongFile(file)
+                            if (file && !songTitle.trim()) {
+                              setSongTitle(file.name.replace(/\.(mp3|wav)$/i, ''))
+                            }
+                          }}
+                        />
+                      </label>
+
+                      <div className="grid grid-cols-2 gap-2 md:col-span-1">
                         <input
                           value={startTimestamp}
                           onChange={(e) => setStartTimestamp(e.target.value)}
@@ -1406,7 +1718,7 @@ function SongWarsLobbyPage() {
                     </div>
 
                     <p className="text-xs text-zinc-500 mt-2">
-                      Clip must be 10-45 seconds. Links can be YouTube, SoundCloud, Spotify, MP3, or WAV.
+                      Clip must be 10-45 seconds. MP3/WAV uploads play directly in the lobby.
                     </p>
 
                     <button
