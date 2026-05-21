@@ -511,7 +511,7 @@ function SongWarsPage() {
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto">
-      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-sm font-semibold text-white flex items-center gap-2">
             <Music2 size={16} className="text-purple-400" />
@@ -520,13 +520,23 @@ function SongWarsPage() {
           <p className="text-xs text-zinc-500">1v1 ranked music battles</p>
         </div>
 
-        <button
-          onClick={loadAll}
-          className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
-        >
-          <RefreshCcw size={14} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => navigate({ to: '/songwars/leaderboard' })}
+            className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
+          >
+            <Trophy size={14} />
+            Ranked Leaderboard
+          </button>
+
+          <button
+            onClick={loadAll}
+            className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
+          >
+            <RefreshCcw size={14} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="max-w-6xl w-full mx-auto px-5 py-6 space-y-6">
@@ -690,9 +700,7 @@ function SongWarsPage() {
                           )}
                         </div>
 
-                        <p className="text-xs text-zinc-500 truncate">
-                          ID: {lobby.id}
-                        </p>
+                        <p className="text-xs text-zinc-500 truncate">ID: {lobby.id}</p>
 
                         <div className="flex flex-wrap gap-2 mt-2">
                           <span className="text-[11px] text-zinc-500 flex items-center gap-1">
@@ -761,13 +769,13 @@ function SongWarsPage() {
 
             <div className="mt-6 border-t border-zinc-800 pt-4">
               <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">
-                Coming Next
+                Next Up
               </h3>
               <div className="space-y-2 text-xs text-zinc-500">
-                <p>• Genre voting room</p>
-                <p>• 1v1 match setup</p>
-                <p>• Song submission</p>
-                <p>• Voting + ELO updates</p>
+                <p>• Quick Match, XP only</p>
+                <p>• Ranked mode for NEESH.+</p>
+                <p>• Song Wars achievements</p>
+                <p>• Shareable battle result cards</p>
               </div>
             </div>
           </div>
