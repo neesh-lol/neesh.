@@ -15,6 +15,9 @@ import {
   CheckCircle,
   XCircle,
   X,
+  Swords,
+  Trophy,
+  Zap,
 } from 'lucide-react'
 
 export const Route = createFileRoute('/premium')({
@@ -192,7 +195,11 @@ function PremiumPage() {
         console.error('Premium status error:', error)
       }
 
-      const isFounder = data?.username === 'ceo' || data?.is_founder_override === true
+      const isFounder =
+        data?.username === 'ceo' ||
+        data?.username === '@ceo' ||
+        data?.is_founder_override === true
+
       const isPremium = isFounder || data?.is_premium === true
 
       setStatus({
@@ -222,6 +229,16 @@ function PremiumPage() {
       desc: 'Stand out everywhere with a white verified checkmark.',
     },
     {
+      icon: Swords,
+      label: 'Ranked Song Wars',
+      desc: 'Compete in best-of-3 ranked music battles, gain ELO, climb ranks, and chase Legend status.',
+    },
+    {
+      icon: Trophy,
+      label: 'ELO + Ranks',
+      desc: 'Unlock ranked placement, climb from Bronze to Champion, and compete for Legend.',
+    },
+    {
       icon: Palette,
       label: 'Profile Customization',
       desc: 'GIF avatars, profile banners, and custom theme colors.',
@@ -248,6 +265,99 @@ function PremiumPage() {
     },
   ]
 
+  const comparisonRows = [
+    {
+      feature: 'Create a profile',
+      free: true,
+      plus: true,
+    },
+    {
+      feature: 'Add interests',
+      free: true,
+      plus: true,
+    },
+    {
+      feature: 'Join public chats',
+      free: true,
+      plus: true,
+    },
+    {
+      feature: 'DM users',
+      free: true,
+      plus: true,
+    },
+    {
+      feature: 'Quick Match Song Wars',
+      free: true,
+      plus: true,
+    },
+    {
+      feature: 'Earn XP',
+      free: true,
+      plus: true,
+    },
+    {
+      feature: 'XP Leaderboard access',
+      free: true,
+      plus: true,
+    },
+    {
+      feature: 'View Song Wars Ranked Leaderboard',
+      free: true,
+      plus: true,
+    },
+    {
+      feature: 'Ranked Song Wars',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'ELO + ranks',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'Best-of-3 competitive Song Wars',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'White verified badge',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'Custom profile themes',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'Profile banner / GIF avatar',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'Profile views',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'Streak protection',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'Exclusive NEESH.+ chat',
+      free: false,
+      plus: true,
+    },
+    {
+      feature: 'XL Leaderboard',
+      free: false,
+      plus: true,
+    },
+  ]
+
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto">
       {showModal && <SubscriptionModal onClose={() => setShowModal(false)} />}
@@ -260,7 +370,7 @@ function PremiumPage() {
         <p className="text-xs text-zinc-500">Premium membership</p>
       </div>
 
-      <div className="max-w-lg mx-auto w-full px-5 py-8 space-y-8">
+      <div className="max-w-3xl mx-auto w-full px-5 py-8 space-y-8">
         {success && showBanner && (
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5 relative">
             <button
@@ -353,7 +463,7 @@ function PremiumPage() {
                 Upgrade to neesh.+
               </h2>
               <p className="text-sm text-zinc-500">
-                Unlock premium social features
+                Unlock premium social features, ranked Song Wars, ELO, and more.
               </p>
             </div>
 
@@ -379,25 +489,79 @@ function PremiumPage() {
             What you get
           </h3>
 
-          {benefits.map(({ icon: Icon, label, desc }) => (
-            <div
-              key={label}
-              className="flex items-start gap-3 bg-zinc-900 border border-zinc-800 rounded-xl p-4"
-            >
-              <div className="w-9 h-9 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
-                <Icon size={16} className="text-white" />
-              </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            {benefits.map(({ icon: Icon, label, desc }) => (
+              <div
+                key={label}
+                className="flex items-start gap-3 bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+              >
+                <div className="w-9 h-9 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
+                  <Icon size={16} className="text-white" />
+                </div>
 
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white">{label}</p>
-                <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
-              </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white">{label}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">{desc}</p>
+                </div>
 
-              {status?.isPremium && (
-                <BadgeCheck size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-              )}
+                {status?.isPremium && (
+                  <BadgeCheck size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            Free vs NEESH.+
+          </h3>
+
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+            <div className="grid grid-cols-[1fr_70px_90px] border-b border-zinc-800">
+              <div className="px-4 py-3 text-xs font-semibold text-zinc-400">
+                Feature
+              </div>
+              <div className="px-4 py-3 text-xs font-semibold text-zinc-400 text-center">
+                Free
+              </div>
+              <div className="px-4 py-3 text-xs font-semibold text-white text-center bg-white/5">
+                NEESH.+
+              </div>
             </div>
-          ))}
+
+            {comparisonRows.map((row) => (
+              <div
+                key={row.feature}
+                className="grid grid-cols-[1fr_70px_90px] border-b border-zinc-800 last:border-b-0"
+              >
+                <div className="px-4 py-3 text-xs text-zinc-300">
+                  {row.feature}
+                </div>
+
+                <div className="px-4 py-3 flex justify-center">
+                  {row.free ? (
+                    <CheckCircle size={15} className="text-emerald-400" />
+                  ) : (
+                    <XCircle size={15} className="text-zinc-700" />
+                  )}
+                </div>
+
+                <div className="px-4 py-3 flex justify-center bg-white/[0.03]">
+                  {row.plus ? (
+                    <CheckCircle size={15} className="text-emerald-400" />
+                  ) : (
+                    <XCircle size={15} className="text-zinc-700" />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-xs text-zinc-600">
+            You can use Neesh for free forever. NEESH.+ unlocks premium customization,
+            ranked competition, and exclusive community features.
+          </p>
         </div>
 
         {status?.isPremium && (
@@ -413,6 +577,18 @@ function PremiumPage() {
               <div className="flex items-center gap-3">
                 <MessageSquare size={16} className="text-white" />
                 <span className="text-sm text-white">NEESH.+ Members Chat</span>
+              </div>
+
+              <ChevronRight size={14} className="text-zinc-600" />
+            </button>
+
+            <button
+              onClick={() => navigate({ to: '/songwars' })}
+              className="w-full flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Swords size={16} className="text-white" />
+                <span className="text-sm text-white">Play Ranked Song Wars</span>
               </div>
 
               <ChevronRight size={14} className="text-zinc-600" />
