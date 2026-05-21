@@ -97,7 +97,9 @@ function SongWarsPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const isLobbyChild = location.pathname.startsWith('/songwars/lobby/')
+  const isSongWarsChild =
+    location.pathname.startsWith('/songwars/lobby/') ||
+    location.pathname.startsWith('/songwars/leaderboard')
 
   const [stats, setStats] = useState<StatsRow | null>(null)
   const [lobbies, setLobbies] = useState<LobbyRow[]>([])
@@ -221,7 +223,7 @@ function SongWarsPage() {
   }
 
   useEffect(() => {
-    if (!user || isLobbyChild) return
+    if (!user || isSongWarsChild) return
 
     loadAll()
 
@@ -266,7 +268,7 @@ function SongWarsPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [user, isLobbyChild])
+  }, [user, isSongWarsChild])
 
   const filteredLobbies = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -489,7 +491,7 @@ function SongWarsPage() {
     await joinLobby(clean)
   }
 
-  if (isLobbyChild) {
+  if (isSongWarsChild) {
     return <Outlet />
   }
 
