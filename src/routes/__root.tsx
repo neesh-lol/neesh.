@@ -1,5 +1,5 @@
 import { HeadContent, Link, Outlet, Scripts, createRootRoute, useNavigate, useLocation } from '@tanstack/react-router'
-import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown, Bell, Music2 } from 'lucide-react'
+import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown, Bell, Music2, Sparkles } from 'lucide-react'
 import { IdentityProvider, useIdentity } from '../lib/identity-context'
 import { CallbackHandler } from '../components/CallbackHandler'
 import { supabase } from '../lib/supabase'
@@ -41,7 +41,18 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   )
 }
 
-const PUBLIC_PATHS = ['/', '/signin', '/signup', '/login', '/terms', '/privacy', '/community-guidelines', '/refund-policy', '/banned']
+const PUBLIC_PATHS = [
+  '/',
+  '/signin',
+  '/signup',
+  '/login',
+  '/terms',
+  '/privacy',
+  '/community-guidelines',
+  '/refund-policy',
+  '/banned',
+]
+
 const AUTH_REDIRECT_PATHS = ['/', '/signin', '/signup', '/login']
 
 type ToastKind = 'message' | 'friend' | 'success' | 'notification'
@@ -130,7 +141,15 @@ function ToastStack({
                       : 'bg-zinc-500/10 text-zinc-300'
               }`}
             >
-              {toast.kind === 'message' ? <Mail size={16} /> : toast.kind === 'success' ? <Users size={16} /> : toast.kind === 'friend' ? <User size={16} /> : <Bell size={16} />}
+              {toast.kind === 'message' ? (
+                <Mail size={16} />
+              ) : toast.kind === 'success' ? (
+                <Users size={16} />
+              ) : toast.kind === 'friend' ? (
+                <User size={16} />
+              ) : (
+                <Bell size={16} />
+              )}
             </div>
 
             <div className="min-w-0 flex-1">
@@ -158,6 +177,7 @@ function AppShell() {
   const { user, ready, logout } = useIdentity()
   const location = useLocation()
   const navigate = useNavigate()
+
   const [mobileOpen, setMobileOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
   const [unreadDms, setUnreadDms] = useState(0)
@@ -165,6 +185,8 @@ function AppShell() {
   const [toasts, setToasts] = useState<AppToast[]>([])
   const [banChecked, setBanChecked] = useState(false)
   const [isBanned, setIsBanned] = useState(false)
+  const [onboardingChecked, setOnboardingChecked] = useState(false)
+  const [onboardingCompleted, setOnboardingCompleted] = useState(true)
 
   const pathname = location.pathname
   const isPublicPath = PUBLIC_PATHS.includes(pathname)
@@ -229,6 +251,45 @@ function AppShell() {
   }, [ready, user, pathname, navigate])
 
   useEffect(() => {
+    if (!ready) return
+
+    if (!user) {
+      setOnboardingCompleted(true)
+      setOnboardingChecked(true)
+      return
+    }
+
+    if (isBanned) {
+      setOnboardingCompleted(true)
+      setOnboardingChecked(true)
+      return
+    }
+
+    async function checkOnboarding() {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('onboarding_completed')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (error) {
+        console.error('Onboarding check error:', error)
+        setOnboardingCompleted(true)
+        setOnboardingChecked(true)
+        return
+      }
+
+      const completed = data?.onboarding_completed === true
+
+      setOnboardingCompleted(completed)
+      setOnboardingChecked(true)
+    }
+
+    setOnboardingChecked(false)
+    checkOnboarding()
+  }, [ready, user, isBanned, pathname])
+
+  useEffect(() => {
     if (!user) return
 
     const channel = supabase
@@ -265,6 +326,37 @@ function AppShell() {
   }, [user, navigate])
 
   useEffect(() => {
+    if (!user) return
+
+    const channel = supabase
+      .channel(`root_onboarding_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`,
+        },
+        async () => {
+          const { data } = await supabase
+            .from('profiles')
+            .select('onboarding_completed')
+            .eq('id', user.id)
+            .maybeSingle()
+
+          setOnboardingCompleted(data?.onboarding_completed === true)
+          setOnboardingChecked(true)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user])
+
+  useEffect(() => {
     if (!user || isBanned) return
 
     const markOnline = async () => {
@@ -282,6 +374,13 @@ function AppShell() {
       if (error) {
         console.error('Presence online error:', error)
       }
+
+      await supabase
+        .from('profiles')
+        .update({
+          last_seen_at: now,
+        })
+        .eq('id', user.id)
     }
 
     const markOffline = async () => {
@@ -295,6 +394,13 @@ function AppShell() {
           last_seen: now,
           updated_at: now,
         })
+
+      await supabase
+        .from('profiles')
+        .update({
+          last_seen_at: now,
+        })
+        .eq('id', user.id)
     }
 
     const handleVisibility = () => {
@@ -625,7 +731,7 @@ function AppShell() {
     updateLoginStreak()
   }, [user, isBanned])
 
-  if (!ready || !banChecked) {
+  if (!ready || !banChecked || !onboardingChecked) {
     return (
       <div className="flex h-screen items-center justify-center bg-black">
         <div className="w-6 h-6 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
@@ -639,7 +745,7 @@ function AppShell() {
 
   if (isPublicPath) {
     if (user && AUTH_REDIRECT_PATHS.includes(pathname) && !isBanned) {
-      return <NavigateTo to="/home" />
+      return <NavigateTo to={onboardingCompleted ? '/home' : '/onboarding'} />
     }
 
     return <Outlet />
@@ -648,6 +754,18 @@ function AppShell() {
   if (!user) return <NavigateTo to="/signin" />
 
   if (isBanned) return <NavigateTo to="/banned" />
+
+  if (!onboardingCompleted && pathname !== '/onboarding') {
+    return <NavigateTo to="/onboarding" />
+  }
+
+  if (onboardingCompleted && pathname === '/onboarding') {
+    return <NavigateTo to="/home" />
+  }
+
+  if (pathname === '/onboarding') {
+    return <Outlet />
+  }
 
   const closeMobile = () => setMobileOpen(false)
 
@@ -718,6 +836,7 @@ function SidebarContent({
     <>
       <nav className="flex-1 p-3 space-y-1">
         <NavItem to="/home" icon={Home} label="Home" onClick={onNavClick} />
+        <NavItem to="/find-people" icon={Sparkles} label="Find People" onClick={onNavClick} />
         <NavItem to="/chat" icon={Hash} label="Interest Chat" onClick={onNavClick} />
         <NavItem to="/community" icon={MessageSquare} label="Community" onClick={onNavClick} />
         <NavItem to="/messages" icon={Mail} label="Messages" onClick={onNavClick} badge={unreadMessages} />
