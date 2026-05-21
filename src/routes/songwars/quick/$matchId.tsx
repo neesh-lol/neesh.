@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
+import { SongWarsResultCard } from '@/components/SongWarsResultCard'
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -10,9 +11,6 @@ import {
   Zap,
   Link as LinkIcon,
   Volume2,
-  CheckCircle,
-  Timer,
-  Flame,
   Users,
   RefreshCcw,
 } from 'lucide-react'
@@ -183,6 +181,15 @@ function QuickSongWarsPage() {
       : match?.listening_player === 'B'
         ? playerBProfile
         : undefined
+
+  const winnerProfile = match?.winner_id ? profiles[match.winner_id] : undefined
+  const loserId =
+    match?.winner_id && match.winner_id === match.player_a_id
+      ? match.player_b_id
+      : match?.winner_id && match.winner_id === match.player_b_id
+        ? match.player_a_id
+        : null
+  const loserProfile = loserId ? profiles[loserId] : undefined
 
   const loadMatch = async (showSpinner = false) => {
     if (!user) return
@@ -1053,9 +1060,25 @@ function QuickSongWarsPage() {
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-5 text-center">
             <Trophy size={34} className="text-emerald-400 mx-auto mb-3" />
             <h2 className="text-xl font-bold text-white mb-1">Quick Match Complete</h2>
-            <p className="text-sm text-zinc-400 mb-4">
+            <p className="text-sm text-zinc-400 mb-5">
               Winner: {match.winner_id ? getDisplayName(profiles[match.winner_id]) : 'Unknown'}
             </p>
+
+            {match.winner_id && loserId && (
+              <div className="max-w-2xl mx-auto mb-5 text-left">
+                <SongWarsResultCard
+                  mode="quick"
+                  winnerName={getDisplayName(winnerProfile)}
+                  loserName={getDisplayName(loserProfile)}
+                  winnerUsername={winnerProfile?.username}
+                  loserUsername={loserProfile?.username}
+                  winnerAvatar={winnerProfile?.avatar_url}
+                  loserAvatar={loserProfile?.avatar_url}
+                  score="1-0"
+                  xpReward={15}
+                />
+              </div>
+            )}
 
             <button
               onClick={() => navigate({ to: '/songwars' })}
