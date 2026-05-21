@@ -80,7 +80,7 @@ function OnboardingPage() {
       }
 
       if (profileData?.onboarding_completed) {
-        navigate({ to: '/app' })
+        navigate({ to: '/home' })
         return
       }
 
@@ -156,32 +156,40 @@ function OnboardingPage() {
         contentType: avatarFile.type || 'image/png',
       })
 
-    if (uploadError) throw uploadError
+    if (uploadError) {
+      console.error('Avatar upload error:', uploadError)
+
+      if (
+        uploadError.message?.toLowerCase().includes('bucket') ||
+        uploadError.message?.toLowerCase().includes('not found')
+      ) {
+        setMessage('Profile picture skipped because the avatars storage bucket does not exist yet. Setup can still continue.')
+        return avatarPreview || null
+      }
+
+      setMessage('Profile picture could not upload. Setup can still continue.')
+      return avatarPreview || null
+    }
 
     const { data } = supabase.storage.from('avatars').getPublicUrl(path)
 
     return data.publicUrl
   }
 
-  const joinFirstRoom = async () => {
-    if (!user) return
+  const joinSelectedRooms = async () => {
+    if (!user || selectedRooms.length === 0) return
 
-    const firstRoom = selectedRooms[0]
+    const rows = selectedRooms.map((room) => ({
+      room_id: room.id,
+      user_id: user.id,
+    }))
 
-    if (!firstRoom) return
-
-    const { error } = await supabase.from('room_members').upsert(
-      {
-        room_id: firstRoom.id,
-        user_id: user.id,
-      },
-      {
-        onConflict: 'room_id,user_id',
-      }
-    )
+    const { error } = await supabase.from('room_members').upsert(rows, {
+      onConflict: 'room_id,user_id',
+    })
 
     if (error) {
-      console.error('Join first room error:', error)
+      console.error('Join selected rooms error:', error)
     }
   }
 
@@ -200,8 +208,6 @@ function OnboardingPage() {
     }
 
     try {
-      const avatarUrl = await uploadAvatar()
-
       const { data: usernameTaken, error: usernameError } = await supabase
         .from('profiles')
         .select('id')
@@ -219,17 +225,24 @@ function OnboardingPage() {
         return
       }
 
+      const avatarUrl = await uploadAvatar()
+
       const { error } = await supabase
         .from('profiles')
-        .update({
-          username: finalUsername,
-          display_name: displayName.trim(),
-          avatar_url: avatarUrl,
-          interests: selectedInterests,
-          onboarding_completed: true,
-          last_seen_at: new Date().toISOString(),
-        })
-        .eq('id', user.id)
+        .upsert(
+          {
+            id: user.id,
+            username: finalUsername,
+            display_name: displayName.trim(),
+            avatar_url: avatarUrl,
+            interests: selectedInterests,
+            onboarding_completed: true,
+            last_seen_at: new Date().toISOString(),
+          },
+          {
+            onConflict: 'id',
+          }
+        )
 
       if (error) {
         console.error('Finish onboarding error:', error)
@@ -238,9 +251,9 @@ function OnboardingPage() {
         return
       }
 
-      await joinFirstRoom()
+      await joinSelectedRooms()
 
-      navigate({ to: '/app' })
+      navigate({ to: '/home' })
     } catch (error: any) {
       console.error('Onboarding save error:', error)
       setMessage(error?.message ?? 'Could not finish onboarding.')
@@ -272,12 +285,12 @@ function OnboardingPage() {
 
           <p className="text-sm text-zinc-500 mt-2 max-w-xl">
             Pick your username, choose at least 3 interests, add a profile picture,
-            and join your first room.
+            and join your first rooms.
           </p>
         </div>
 
         {message && (
-          <div className="mb-5 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-xs text-red-300">
+          <div className="mb-5 bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3 text-xs text-yellow-300">
             {message}
           </div>
         )}
@@ -346,7 +359,7 @@ function OnboardingPage() {
                         {avatarFile ? avatarFile.name : 'Upload profile picture'}
                       </p>
                       <p className="text-xs text-zinc-500 mt-1">
-                        PNG, JPG, WEBP, or GIF.
+                        Optional · PNG, JPG, WEBP, or GIF.
                       </p>
                     </div>
 
@@ -455,20 +468,35 @@ function OnboardingPage() {
                   optional
                 />
                 <ChecklistItem
-                  label="Join your first room"
+                  label="Join your rooms"
                   done={selectedRooms.length > 0}
                 />
               </div>
 
-              {selectedRooms[0] && (
+              {selectedRooms.length > 0 && (
                 <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 mb-5">
-                  <p className="text-xs text-zinc-500 mb-1">
-                    First room
+                  <p className="text-xs text-zinc-500 mb-2">
+                    Rooms you’ll join
                   </p>
-                  <p className="text-sm font-semibold text-white">
-                    {selectedRooms[0].name}
-                  </p>
-                  <p className="text-xs text-zinc-600 mt-1">
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedRooms.slice(0, 5).map((room) => (
+                      <span
+                        key={room.id}
+                        className="px-2 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-400"
+                      >
+                        {room.name}
+                      </span>
+                    ))}
+
+                    {selectedRooms.length > 5 && (
+                      <span className="px-2 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-500">
+                        +{selectedRooms.length - 5}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-zinc-600 mt-2">
                     You’ll be added automatically when you finish.
                   </p>
                 </div>
