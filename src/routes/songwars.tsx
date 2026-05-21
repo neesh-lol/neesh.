@@ -108,7 +108,11 @@ function SongWarsPage() {
   const [message, setMessage] = useState('')
   const [nowTick, setNowTick] = useState(Date.now())
 
-  const isPremium = !!profile?.is_premium || !!profile?.is_founder_override
+  const isPremium =
+    profile?.is_premium === true ||
+    profile?.is_founder_override === true ||
+    profile?.username === 'ceo' ||
+    profile?.username === '@ceo'
 
   const isQuickQueued = !!myQuickQueueRow && myQuickQueueRow.status === 'queued'
   const quickQueueCount = quickQueueRows.filter((row) => row.status === 'queued').length
@@ -646,7 +650,6 @@ function SongWarsPage() {
   const xp = stats?.xp ?? 0
   const wins = stats?.wins ?? 0
   const losses = stats?.losses ?? 0
-  const streak = stats?.win_streak ?? 0
   const peak = stats?.peak_elo ?? 1200
   const rank = rankFromElo(elo)
   const quickWins = stats?.quick_wins ?? 0
@@ -876,7 +879,9 @@ function SongWarsPage() {
                     Ranked Song Wars is a NEESH.+ perk.
                   </p>
                   <button
-                    onClick={() => navigate({ to: '/neesh-plus' })}
+                    onClick={() => {
+                      window.location.href = '/premium'
+                    }}
                     className="px-4 py-2.5 bg-white text-zinc-950 rounded-xl text-sm font-bold hover:bg-zinc-200 transition-colors"
                   >
                     Upgrade to NEESH.+
