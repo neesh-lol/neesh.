@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
+import { SongWarsResultCard } from '@/components/SongWarsResultCard'
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -10,12 +11,9 @@ import {
   Zap,
   Link as LinkIcon,
   Volume2,
-  CheckCircle,
-  Timer,
   Users,
   RefreshCcw,
   Crown,
-  Swords,
 } from 'lucide-react'
 
 export const Route = createFileRoute('/songwars/ranked/$matchId')({
@@ -174,7 +172,9 @@ function RankedSongWarsPage() {
     ? submissions.find((s) => s.user_id === user.id && s.round_number === currentRound)
     : null
 
-  const myVote = user ? votes.find((v) => v.voter_id === user.id && v.round_number === currentRound) : null
+  const myVote = user
+    ? votes.find((v) => v.voter_id === user.id && v.round_number === currentRound)
+    : null
 
   const playerAVotes = match
     ? votes.filter((v) => v.voted_for_id === match.player_a_id && v.round_number === currentRound).length
@@ -205,6 +205,22 @@ function RankedSongWarsPage() {
       : match?.listening_player === 'B'
         ? playerBProfile
         : undefined
+
+  const winnerProfile = match?.winner_id ? profiles[match.winner_id] : undefined
+  const loserId =
+    match?.winner_id && match.winner_id === match.player_a_id
+      ? match.player_b_id
+      : match?.winner_id && match.winner_id === match.player_b_id
+        ? match.player_a_id
+        : null
+  const loserProfile = loserId ? profiles[loserId] : undefined
+
+  const finalScore =
+    match?.winner_id === match?.player_a_id
+      ? `${Math.max(match?.player_a_rounds ?? 2, 2)}-${match?.player_b_rounds ?? 0}`
+      : match?.winner_id === match?.player_b_id
+        ? `${match?.player_b_rounds ?? 2}-${match?.player_a_rounds ?? 0}`
+        : `${match?.player_a_rounds ?? 0}-${match?.player_b_rounds ?? 0}`
 
   const loadMatch = async (showSpinner = false) => {
     if (!user) return
@@ -1128,9 +1144,25 @@ function RankedSongWarsPage() {
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-5 text-center">
             <Trophy size={34} className="text-yellow-400 mx-auto mb-3" />
             <h2 className="text-xl font-bold text-white mb-1">Ranked Match Complete</h2>
-            <p className="text-sm text-zinc-400 mb-4">
+            <p className="text-sm text-zinc-400 mb-5">
               Winner: {match.winner_id ? getDisplayName(profiles[match.winner_id]) : 'Unknown'}
             </p>
+
+            {match.winner_id && loserId && (
+              <div className="max-w-2xl mx-auto mb-5 text-left">
+                <SongWarsResultCard
+                  mode="ranked"
+                  winnerName={getDisplayName(winnerProfile)}
+                  loserName={getDisplayName(loserProfile)}
+                  winnerUsername={winnerProfile?.username}
+                  loserUsername={loserProfile?.username}
+                  winnerAvatar={winnerProfile?.avatar_url}
+                  loserAvatar={loserProfile?.avatar_url}
+                  score={finalScore}
+                  xpReward={25}
+                />
+              </div>
+            )}
 
             <button
               onClick={() => navigate({ to: '/songwars' })}
