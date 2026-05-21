@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Music2,
   Trophy,
@@ -52,27 +52,11 @@ type ProfileRow = {
 type QueueRow = {
   id: string
   user_id: string
-  mode: string
+  mode?: string
   status: string
   joined_at: string
   match_id: string | null
   created_at: string
-}
-
-type QuickMatchRow = {
-  id: string
-  player_a_id: string
-  player_b_id: string
-  voter_id: string
-  status: string
-  round_number: number
-  winner_id: string | null
-  created_at: string
-  updated_at: string
-  submit_deadline_at: string | null
-  listening_started_at: string | null
-  listening_player: string | null
-  listening_ends_at: string | null
 }
 
 function rankFromElo(elo: number, legendPosition?: number | null) {
@@ -107,22 +91,35 @@ function SongWarsPage() {
   const isSongWarsChild =
     location.pathname.startsWith('/songwars/lobby/') ||
     location.pathname.startsWith('/songwars/leaderboard') ||
-    location.pathname.startsWith('/songwars/quick/')
+    location.pathname.startsWith('/songwars/quick/') ||
+    location.pathname.startsWith('/songwars/ranked/')
 
   const [stats, setStats] = useState<StatsRow | null>(null)
   const [profile, setProfile] = useState<ProfileRow | null>(null)
-  const [queueRows, setQueueRows] = useState<QueueRow[]>([])
-  const [myQueueRow, setMyQueueRow] = useState<QueueRow | null>(null)
+
+  const [quickQueueRows, setQuickQueueRows] = useState<QueueRow[]>([])
+  const [myQuickQueueRow, setMyQuickQueueRow] = useState<QueueRow | null>(null)
+
+  const [rankedQueueRows, setRankedQueueRows] = useState<QueueRow[]>([])
+  const [myRankedQueueRow, setMyRankedQueueRow] = useState<QueueRow | null>(null)
+
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState('')
   const [message, setMessage] = useState('')
   const [nowTick, setNowTick] = useState(Date.now())
 
   const isPremium = !!profile?.is_premium || !!profile?.is_founder_override
-  const isQueued = !!myQueueRow && myQueueRow.status === 'queued'
-  const queueCount = queueRows.filter((row) => row.status === 'queued' && row.mode === 'quick').length
-  const waitingSeconds = myQueueRow?.joined_at
-    ? Math.max(0, Math.floor((nowTick - new Date(myQueueRow.joined_at).getTime()) / 1000))
+
+  const isQuickQueued = !!myQuickQueueRow && myQuickQueueRow.status === 'queued'
+  const quickQueueCount = quickQueueRows.filter((row) => row.status === 'queued').length
+  const quickWaitingSeconds = myQuickQueueRow?.joined_at
+    ? Math.max(0, Math.floor((nowTick - new Date(myQuickQueueRow.joined_at).getTime()) / 1000))
+    : 0
+
+  const isRankedQueued = !!myRankedQueueRow && myRankedQueueRow.status === 'queued'
+  const rankedQueueCount = rankedQueueRows.filter((row) => row.status === 'queued').length
+  const rankedWaitingSeconds = myRankedQueueRow?.joined_at
+    ? Math.max(0, Math.floor((nowTick - new Date(myRankedQueueRow.joined_at).getTime()) / 1000))
     : 0
 
   useEffect(() => {
@@ -202,7 +199,7 @@ function SongWarsPage() {
     setStats(created)
   }
 
-  const loadQueue = async () => {
+  const loadQuickQueue = async () => {
     if (!user) return
 
     const { data, error } = await supabase
@@ -213,20 +210,47 @@ function SongWarsPage() {
       .order('joined_at', { ascending: true })
 
     if (error) {
-      console.error('Song Wars queue load error:', error)
-      setQueueRows([])
-      setMyQueueRow(null)
+      console.error('Song Wars quick queue load error:', error)
+      setQuickQueueRows([])
+      setMyQuickQueueRow(null)
       return
     }
 
     const rows = data ?? []
-    setQueueRows(rows)
+    setQuickQueueRows(rows)
 
     const mine = rows.find((row) => row.user_id === user.id) ?? null
-    setMyQueueRow(mine)
+    setMyQuickQueueRow(mine)
 
     if (mine?.status === 'matched' && mine.match_id) {
       window.location.assign(`/songwars/quick/${mine.match_id}`)
+    }
+  }
+
+  const loadRankedQueue = async () => {
+    if (!user) return
+
+    const { data, error } = await supabase
+      .from('songwars_ranked_queue')
+      .select('*')
+      .in('status', ['queued', 'matched'])
+      .order('joined_at', { ascending: true })
+
+    if (error) {
+      console.error('Song Wars ranked queue load error:', error)
+      setRankedQueueRows([])
+      setMyRankedQueueRow(null)
+      return
+    }
+
+    const rows = data ?? []
+    setRankedQueueRows(rows)
+
+    const mine = rows.find((row) => row.user_id === user.id) ?? null
+    setMyRankedQueueRow(mine)
+
+    if (mine?.status === 'matched' && mine.match_id) {
+      window.location.assign(`/songwars/ranked/${mine.match_id}`)
     }
   }
 
@@ -237,7 +261,7 @@ function SongWarsPage() {
       setLoading(true)
     }
 
-    await Promise.all([loadProfile(), loadStats(), loadQueue()])
+    await Promise.all([loadProfile(), loadStats(), loadQuickQueue(), loadRankedQueue()])
 
     setLoading(false)
   }
@@ -257,7 +281,7 @@ function SongWarsPage() {
           table: 'songwars_queue',
         },
         () => {
-          loadQueue()
+          loadQuickQueue()
         }
       )
       .on(
@@ -268,7 +292,29 @@ function SongWarsPage() {
           table: 'songwars_quick_matches',
         },
         () => {
-          loadQueue()
+          loadQuickQueue()
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'songwars_ranked_queue',
+        },
+        () => {
+          loadRankedQueue()
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'songwars_ranked_matches',
+        },
+        () => {
+          loadRankedQueue()
         }
       )
       .on(
@@ -286,7 +332,8 @@ function SongWarsPage() {
       .subscribe()
 
     const polling = setInterval(() => {
-      loadQueue()
+      loadQuickQueue()
+      loadRankedQueue()
     }, 2500)
 
     return () => {
@@ -313,10 +360,7 @@ function SongWarsPage() {
     }
 
     const queued = queuedRows ?? []
-
-    if (queued.length < 3) {
-      return
-    }
+    if (queued.length < 3) return
 
     const playerA = queued[0]
     const playerB = queued[1]
@@ -368,6 +412,77 @@ function SongWarsPage() {
     }
   }
 
+  const tryCreateRankedMatch = async () => {
+    if (!user) return
+
+    const { data: queuedRows, error: queueError } = await supabase
+      .from('songwars_ranked_queue')
+      .select('*')
+      .eq('status', 'queued')
+      .order('joined_at', { ascending: true })
+      .limit(3)
+
+    if (queueError) {
+      console.error('Load ranked queue error:', queueError)
+      setMessage(queueError.message)
+      return
+    }
+
+    const queued = queuedRows ?? []
+    if (queued.length < 3) return
+
+    const playerA = queued[0]
+    const playerB = queued[1]
+    const voter = queued[2]
+
+    const submitDeadline = new Date(Date.now() + 5 * 60 * 1000).toISOString()
+
+    const { data: match, error: matchError } = await supabase
+      .from('songwars_ranked_matches')
+      .insert({
+        player_a_id: playerA.user_id,
+        player_b_id: playerB.user_id,
+        voter_id: voter.user_id,
+        status: 'submitting',
+        round_number: 1,
+        player_a_rounds: 0,
+        player_b_rounds: 0,
+        submit_deadline_at: submitDeadline,
+        listening_started_at: null,
+        listening_player: null,
+        listening_ends_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single()
+
+    if (matchError || !match) {
+      console.error('Create ranked match error:', matchError)
+      setMessage(matchError?.message ?? 'Could not create ranked match.')
+      return
+    }
+
+    const matchedIds = queued.map((row) => row.id)
+
+    const { error: updateQueueError } = await supabase
+      .from('songwars_ranked_queue')
+      .update({
+        status: 'matched',
+        match_id: match.id,
+      })
+      .in('id', matchedIds)
+
+    if (updateQueueError) {
+      console.error('Update ranked queue error:', updateQueueError)
+      setMessage(updateQueueError.message)
+      return
+    }
+
+    if (queued.some((row) => row.user_id === user.id)) {
+      window.location.assign(`/songwars/ranked/${match.id}`)
+    }
+  }
+
   const joinQuickQueue = async () => {
     if (!user) return
 
@@ -411,7 +526,7 @@ function SongWarsPage() {
       }
     }
 
-    await loadQueue()
+    await loadQuickQueue()
     await tryCreateQuickMatch()
     setActionLoading('')
   }
@@ -436,17 +551,83 @@ function SongWarsPage() {
       return
     }
 
-    await loadQueue()
+    await loadQuickQueue()
     setActionLoading('')
   }
 
-  const openRanked = () => {
+  const joinRankedQueue = async () => {
+    if (!user) return
+
+    setActionLoading('ranked')
+    setMessage('')
+
     if (!isPremium) {
       setMessage('Ranked Song Wars is locked. Upgrade to NEESH.+ to play ranked.')
+      setActionLoading('')
       return
     }
 
-    setMessage('Ranked mode is next. For now, ranked leaderboard is live.')
+    const { data: existing, error: existingError } = await supabase
+      .from('songwars_ranked_queue')
+      .select('*')
+      .eq('user_id', user.id)
+      .in('status', ['queued', 'matched'])
+      .maybeSingle()
+
+    if (existingError) {
+      console.error('Check ranked queue error:', existingError)
+      setMessage(existingError.message)
+      setActionLoading('')
+      return
+    }
+
+    if (existing?.status === 'matched' && existing.match_id) {
+      window.location.assign(`/songwars/ranked/${existing.match_id}`)
+      return
+    }
+
+    if (!existing) {
+      const { error } = await supabase
+        .from('songwars_ranked_queue')
+        .insert({
+          user_id: user.id,
+          status: 'queued',
+        })
+
+      if (error) {
+        console.error('Join ranked queue error:', error)
+        setMessage(error.message)
+        setActionLoading('')
+        return
+      }
+    }
+
+    await loadRankedQueue()
+    await tryCreateRankedMatch()
+    setActionLoading('')
+  }
+
+  const leaveRankedQueue = async () => {
+    if (!user) return
+
+    setActionLoading('leaveRanked')
+    setMessage('')
+
+    const { error } = await supabase
+      .from('songwars_ranked_queue')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('status', 'queued')
+
+    if (error) {
+      console.error('Leave ranked queue error:', error)
+      setMessage(error.message)
+      setActionLoading('')
+      return
+    }
+
+    await loadRankedQueue()
+    setActionLoading('')
   }
 
   if (isSongWarsChild) {
@@ -569,7 +750,15 @@ function SongWarsPage() {
                   <Users size={14} />
                   Quick Queue
                 </span>
-                <span className="text-sm font-bold text-white">{queueCount}/3</span>
+                <span className="text-sm font-bold text-white">{quickQueueCount}/3</span>
+              </div>
+
+              <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3">
+                <span className="text-xs text-zinc-500 flex items-center gap-2">
+                  <Crown size={14} />
+                  Ranked Queue
+                </span>
+                <span className="text-sm font-bold text-white">{rankedQueueCount}/3</span>
               </div>
 
               <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3">
@@ -578,7 +767,11 @@ function SongWarsPage() {
                   Waiting
                 </span>
                 <span className="text-sm font-bold text-white">
-                  {isQueued ? formatTime(waitingSeconds) : '0:00'}
+                  {isQuickQueued
+                    ? formatTime(quickWaitingSeconds)
+                    : isRankedQueued
+                      ? formatTime(rankedWaitingSeconds)
+                      : '0:00'}
                 </span>
               </div>
             </div>
@@ -627,26 +820,26 @@ function SongWarsPage() {
               <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-sm font-semibold text-white">Looking for Match</p>
-                  <p className="text-xs text-zinc-500">{queueCount}/3 in queue</p>
+                  <p className="text-xs text-zinc-500">{quickQueueCount}/3 in queue</p>
                 </div>
 
                 <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
                   <div
                     className="h-full bg-emerald-400 transition-all"
                     style={{
-                      width: `${Math.min(100, (queueCount / 3) * 100)}%`,
+                      width: `${Math.min(100, (quickQueueCount / 3) * 100)}%`,
                     }}
                   />
                 </div>
 
                 <p className="text-xs text-zinc-500 mt-3">
-                  {isQueued
-                    ? `You have been waiting ${formatTime(waitingSeconds)}.`
+                  {isQuickQueued
+                    ? `You have been waiting ${formatTime(quickWaitingSeconds)}.`
                     : 'Queue starts when you press Look for Match.'}
                 </p>
               </div>
 
-              {isQueued ? (
+              {isQuickQueued ? (
                 <button
                   onClick={leaveQuickQueue}
                   disabled={!!actionLoading}
@@ -657,7 +850,7 @@ function SongWarsPage() {
               ) : (
                 <button
                   onClick={joinQuickQueue}
-                  disabled={!!actionLoading}
+                  disabled={!!actionLoading || isRankedQueued}
                   className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-white text-zinc-950 text-sm font-bold hover:bg-zinc-200 transition-colors disabled:opacity-50"
                 >
                   <Search size={16} />
@@ -730,20 +923,45 @@ function SongWarsPage() {
               </div>
 
               <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
-                <p className="text-sm font-semibold text-white mb-1">Your Ranked Stats</p>
-                <p className="text-xs text-zinc-500">
-                  {rank} · {elo} ELO · {wins}-{losses} · {winRate(wins, losses)}% win rate
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-white">Ranked Queue</p>
+                  <p className="text-xs text-zinc-500">{rankedQueueCount}/3 in queue</p>
+                </div>
+
+                <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full bg-yellow-400 transition-all"
+                    style={{
+                      width: `${Math.min(100, (rankedQueueCount / 3) * 100)}%`,
+                    }}
+                  />
+                </div>
+
+                <p className="text-xs text-zinc-500 mt-3">
+                  {isRankedQueued
+                    ? `You have been waiting ${formatTime(rankedWaitingSeconds)}.`
+                    : `${rank} · ${elo} ELO · ${wins}-${losses} · ${winRate(wins, losses)}% win rate`}
                 </p>
               </div>
 
-              <button
-                onClick={openRanked}
-                disabled={!isPremium}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-yellow-400 text-zinc-950 text-sm font-bold hover:bg-yellow-300 transition-colors disabled:opacity-50"
-              >
-                <Swords size={16} />
-                Ranked Coming Next
-              </button>
+              {isRankedQueued ? (
+                <button
+                  onClick={leaveRankedQueue}
+                  disabled={!!actionLoading}
+                  className="w-full py-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                >
+                  Cancel Ranked Queue
+                </button>
+              ) : (
+                <button
+                  onClick={joinRankedQueue}
+                  disabled={!isPremium || !!actionLoading || isQuickQueued}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-yellow-400 text-zinc-950 text-sm font-bold hover:bg-yellow-300 transition-colors disabled:opacity-50"
+                >
+                  <Swords size={16} />
+                  Look for Ranked Match
+                </button>
+              )}
 
               <button
                 onClick={() => navigate({ to: '/songwars/leaderboard' })}
@@ -759,13 +977,13 @@ function SongWarsPage() {
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
           <h2 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
             <Radio size={15} />
-            How Quick Match Works
+            How Song Wars Matchmaking Works
           </h2>
 
           <div className="grid md:grid-cols-3 gap-3 text-xs text-zinc-500">
             <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
               <p className="text-white font-semibold mb-1">1. Queue</p>
-              <p>Press Look for Match. The match starts when 3 users are queued.</p>
+              <p>Press Look for Match. A match starts when 3 users are queued.</p>
             </div>
 
             <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
@@ -774,8 +992,8 @@ function SongWarsPage() {
             </div>
 
             <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
-              <p className="text-white font-semibold mb-1">3. Streak</p>
-              <p>Winner gets XP and continues their quick win streak.</p>
+              <p className="text-white font-semibold mb-1">3. Rewards</p>
+              <p>Quick gives XP and streaks. Ranked gives XP, ELO, and leaderboard movement.</p>
             </div>
           </div>
         </div>
