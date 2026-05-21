@@ -9,40 +9,20 @@ import {
   Zap,
   Crown,
   Users,
-  Plus,
   RefreshCcw,
   Search,
   Swords,
+  Lock,
+  Play,
+  Timer,
   Radio,
-  Medal,
-  XCircle,
+  Shield,
+  Sparkles,
 } from 'lucide-react'
 
 export const Route = createFileRoute('/songwars')({
   component: SongWarsPage,
 })
-
-type LobbyRow = {
-  id: string
-  name: string
-  host_id: string
-  status: string
-  active_genre: string | null
-  max_players: number
-  current_champion_id: string | null
-  created_at: string
-  updated_at: string
-  closed_at?: string | null
-}
-
-type LobbyPlayerRow = {
-  id: string
-  lobby_id: string
-  user_id: string
-  joined_at: string
-  eliminated: boolean | null
-  left_at?: string | null
-}
 
 type StatsRow = {
   user_id: string
@@ -53,19 +33,47 @@ type StatsRow = {
   win_streak: number
   peak_elo: number
   favorite_genre: string | null
+  quick_wins?: number | null
+  quick_losses?: number | null
+  quick_win_streak?: number | null
+  best_quick_win_streak?: number | null
   updated_at: string
 }
 
-const GENRES = [
-  'Underground Rap',
-  'Indie',
-  'Alternative',
-  'Opium',
-  'Rock',
-  'Hyperpop',
-  'Pop',
-  'Random',
-]
+type ProfileRow = {
+  id: string
+  username: string | null
+  display_name: string | null
+  avatar_url: string | null
+  is_premium: boolean | null
+  is_founder_override: boolean | null
+}
+
+type QueueRow = {
+  id: string
+  user_id: string
+  mode: string
+  status: string
+  joined_at: string
+  match_id: string | null
+  created_at: string
+}
+
+type QuickMatchRow = {
+  id: string
+  player_a_id: string
+  player_b_id: string
+  voter_id: string
+  status: string
+  round_number: number
+  winner_id: string | null
+  created_at: string
+  updated_at: string
+  submit_deadline_at: string | null
+  listening_started_at: string | null
+  listening_player: string | null
+  listening_ends_at: string | null
+}
 
 function rankFromElo(elo: number, legendPosition?: number | null) {
   if (legendPosition && legendPosition <= 500) return 'Legend'
@@ -84,12 +92,11 @@ function winRate(wins: number, losses: number) {
   return Math.round((wins / total) * 100)
 }
 
-function statusLabel(status: string) {
-  if (status === 'waiting') return 'Waiting'
-  if (status === 'genreVoting') return 'Genre Voting'
-  if (status === 'inMatch') return 'In Match'
-  if (status === 'finished') return 'Closed'
-  return status
+function formatTime(totalSeconds: number) {
+  const safe = Math.max(0, Math.floor(totalSeconds))
+  const minutes = Math.floor(safe / 60)
+  const seconds = safe % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
 function SongWarsPage() {
@@ -99,24 +106,52 @@ function SongWarsPage() {
 
   const isSongWarsChild =
     location.pathname.startsWith('/songwars/lobby/') ||
-    location.pathname.startsWith('/songwars/leaderboard')
+    location.pathname.startsWith('/songwars/leaderboard') ||
+    location.pathname.startsWith('/songwars/quick/')
 
   const [stats, setStats] = useState<StatsRow | null>(null)
-  const [lobbies, setLobbies] = useState<LobbyRow[]>([])
-  const [playerCounts, setPlayerCounts] = useState<Record<string, number>>({})
-  const [myLobbyIds, setMyLobbyIds] = useState<Set<string>>(new Set())
+  const [profile, setProfile] = useState<ProfileRow | null>(null)
+  const [queueRows, setQueueRows] = useState<QueueRow[]>([])
+  const [myQueueRow, setMyQueueRow] = useState<QueueRow | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState('')
   const [message, setMessage] = useState('')
-  const [lobbyName, setLobbyName] = useState('')
-  const [joinCode, setJoinCode] = useState('')
-  const [search, setSearch] = useState('')
+  const [nowTick, setNowTick] = useState(Date.now())
+
+  const isPremium = !!profile?.is_premium || !!profile?.is_founder_override
+  const isQueued = !!myQueueRow && myQueueRow.status === 'queued'
+  const queueCount = queueRows.filter((row) => row.status === 'queued' && row.mode === 'quick').length
+  const waitingSeconds = myQueueRow?.joined_at
+    ? Math.max(0, Math.floor((nowTick - new Date(myQueueRow.joined_at).getTime()) / 1000))
+    : 0
 
   useEffect(() => {
     if (ready && !user) {
       navigate({ to: '/signin' })
     }
   }, [ready, user, navigate])
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const loadProfile = async () => {
+    if (!user) return
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id,username,display_name,avatar_url,is_premium,is_founder_override')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (error) {
+      console.error('Song Wars profile load error:', error)
+      return
+    }
+
+    setProfile(data ?? null)
+  }
 
   const loadStats = async () => {
     if (!user) return
@@ -148,6 +183,10 @@ function SongWarsPage() {
           losses: 0,
           win_streak: 0,
           peak_elo: 1200,
+          quick_wins: 0,
+          quick_losses: 0,
+          quick_win_streak: 0,
+          best_quick_win_streak: 0,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' }
@@ -163,69 +202,50 @@ function SongWarsPage() {
     setStats(created)
   }
 
-  const loadLobbies = async () => {
+  const loadQueue = async () => {
     if (!user) return
 
-    setLoading(true)
-
-    const { data: lobbyRows, error } = await supabase
-      .from('songwars_lobbies')
+    const { data, error } = await supabase
+      .from('songwars_queue')
       .select('*')
-      .neq('status', 'finished')
-      .order('created_at', { ascending: false })
-      .limit(50)
+      .eq('mode', 'quick')
+      .in('status', ['queued', 'matched'])
+      .order('joined_at', { ascending: true })
 
     if (error) {
-      console.error('Song Wars lobby load error:', error)
-      setLobbies([])
-      setLoading(false)
+      console.error('Song Wars queue load error:', error)
+      setQueueRows([])
+      setMyQueueRow(null)
       return
     }
 
-    const rows = lobbyRows ?? []
-    setLobbies(rows)
+    const rows = data ?? []
+    setQueueRows(rows)
 
-    const lobbyIds = rows.map((l) => l.id)
+    const mine = rows.find((row) => row.user_id === user.id) ?? null
+    setMyQueueRow(mine)
 
-    if (lobbyIds.length > 0) {
-      const { data: players, error: playersError } = await supabase
-        .from('songwars_lobby_players')
-        .select('*')
-        .in('lobby_id', lobbyIds)
-
-      if (playersError) {
-        console.error('Song Wars player count error:', playersError)
-      } else {
-        const counts: Record<string, number> = {}
-        const mine = new Set<string>()
-
-        for (const p of (players ?? []) as LobbyPlayerRow[]) {
-          counts[p.lobby_id] = (counts[p.lobby_id] ?? 0) + 1
-
-          if (p.user_id === user.id) {
-            mine.add(p.lobby_id)
-          }
-        }
-
-        setPlayerCounts(counts)
-        setMyLobbyIds(mine)
-      }
-    } else {
-      setPlayerCounts({})
-      setMyLobbyIds(new Set())
+    if (mine?.status === 'matched' && mine.match_id) {
+      window.location.assign(`/songwars/quick/${mine.match_id}`)
     }
-
-    setLoading(false)
   }
 
-  const loadAll = async () => {
-    await Promise.all([loadStats(), loadLobbies()])
+  const loadAll = async (showSpinner = false) => {
+    if (!user) return
+
+    if (showSpinner) {
+      setLoading(true)
+    }
+
+    await Promise.all([loadProfile(), loadStats(), loadQueue()])
+
+    setLoading(false)
   }
 
   useEffect(() => {
     if (!user || isSongWarsChild) return
 
-    loadAll()
+    loadAll(true)
 
     const channel = supabase
       .channel(`songwars_home_${user.id}`)
@@ -234,10 +254,10 @@ function SongWarsPage() {
         {
           event: '*',
           schema: 'public',
-          table: 'songwars_lobbies',
+          table: 'songwars_queue',
         },
         () => {
-          loadLobbies()
+          loadQueue()
         }
       )
       .on(
@@ -245,10 +265,10 @@ function SongWarsPage() {
         {
           event: '*',
           schema: 'public',
-          table: 'songwars_lobby_players',
+          table: 'songwars_quick_matches',
         },
         () => {
-          loadLobbies()
+          loadQueue()
         }
       )
       .on(
@@ -265,237 +285,175 @@ function SongWarsPage() {
       )
       .subscribe()
 
+    const polling = setInterval(() => {
+      loadQueue()
+    }, 2500)
+
     return () => {
+      clearInterval(polling)
       supabase.removeChannel(channel)
     }
   }, [user, isSongWarsChild])
 
-  const filteredLobbies = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return lobbies
-
-    return lobbies.filter((lobby) => {
-      return (
-        lobby.name.toLowerCase().includes(q) ||
-        lobby.id.toLowerCase().includes(q) ||
-        (lobby.active_genre ?? '').toLowerCase().includes(q)
-      )
-    })
-  }, [lobbies, search])
-
-  const leaveOtherActiveLobbies = async () => {
+  const tryCreateQuickMatch = async () => {
     if (!user) return
 
-    const { data: activeLobbies, error } = await supabase
-      .from('songwars_lobbies')
-      .select('id,status')
-      .neq('status', 'finished')
+    const { data: queuedRows, error: queueError } = await supabase
+      .from('songwars_queue')
+      .select('*')
+      .eq('mode', 'quick')
+      .eq('status', 'queued')
+      .order('joined_at', { ascending: true })
+      .limit(3)
 
-    if (error) {
-      console.error('Load active Song Wars lobbies error:', error)
+    if (queueError) {
+      console.error('Load quick queue error:', queueError)
+      setMessage(queueError.message)
       return
     }
 
-    const activeIds = (activeLobbies ?? []).map((l) => l.id)
+    const queued = queuedRows ?? []
 
-    if (activeIds.length === 0) return
-
-    const { error: deleteError } = await supabase
-      .from('songwars_lobby_players')
-      .delete()
-      .eq('user_id', user.id)
-      .in('lobby_id', activeIds)
-
-    if (deleteError) {
-      console.error('Leave other Song Wars lobbies error:', deleteError)
-    }
-  }
-
-  const closeLobby = async (lobbyId: string) => {
-    if (!user) return
-
-    if (!confirm('Close this lobby?')) return
-
-    setActionLoading(`close-${lobbyId}`)
-    setMessage('')
-
-    const { error } = await supabase
-      .from('songwars_lobbies')
-      .update({
-        status: 'finished',
-        closed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', lobbyId)
-      .eq('host_id', user.id)
-
-    if (error) {
-      console.error('Close lobby error:', error)
-      setMessage(error.message)
-      setActionLoading('')
+    if (queued.length < 3) {
       return
     }
 
-    setMessage('Lobby closed.')
-    await loadLobbies()
-    setActionLoading('')
-  }
+    const playerA = queued[0]
+    const playerB = queued[1]
+    const voter = queued[2]
 
-  const createLobby = async () => {
-    if (!user) return
+    const submitDeadline = new Date(Date.now() + 5 * 60 * 1000).toISOString()
 
-    setActionLoading('create')
-    setMessage('')
-
-    await leaveOtherActiveLobbies()
-
-    const { error: closeOldError } = await supabase
-      .from('songwars_lobbies')
-      .update({
-        status: 'finished',
-        closed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('host_id', user.id)
-      .neq('status', 'finished')
-
-    if (closeOldError) {
-      console.error('Close old hosted lobbies error:', closeOldError)
-    }
-
-    const cleanName = lobbyName.trim() || 'Song Wars Lobby'
-
-    const { data: lobby, error } = await supabase
-      .from('songwars_lobbies')
+    const { data: match, error: matchError } = await supabase
+      .from('songwars_quick_matches')
       .insert({
-        name: cleanName,
-        host_id: user.id,
-        status: 'waiting',
-        max_players: 20,
+        player_a_id: playerA.user_id,
+        player_b_id: playerB.user_id,
+        voter_id: voter.user_id,
+        status: 'submitting',
+        round_number: 1,
+        submit_deadline_at: submitDeadline,
+        listening_started_at: null,
+        listening_player: null,
+        listening_ends_at: null,
         updated_at: new Date().toISOString(),
       })
       .select()
       .single()
 
-    if (error || !lobby) {
-      console.error('Create Song Wars lobby error:', error)
-      setMessage(error?.message ?? 'Could not create lobby.')
-      setActionLoading('')
+    if (matchError || !match) {
+      console.error('Create quick match error:', matchError)
+      setMessage(matchError?.message ?? 'Could not create quick match.')
       return
     }
 
-    const { error: joinError } = await supabase
-      .from('songwars_lobby_players')
-      .upsert(
-        {
-          lobby_id: lobby.id,
-          user_id: user.id,
-          eliminated: false,
-        },
-        {
-          onConflict: 'lobby_id,user_id',
-        }
-      )
+    const matchedIds = queued.map((row) => row.id)
 
-    if (joinError) {
-      console.error('Auto-join lobby error:', joinError)
-      setMessage(joinError.message)
-      setActionLoading('')
+    const { error: updateQueueError } = await supabase
+      .from('songwars_queue')
+      .update({
+        status: 'matched',
+        match_id: match.id,
+      })
+      .in('id', matchedIds)
+
+    if (updateQueueError) {
+      console.error('Update quick queue error:', updateQueueError)
+      setMessage(updateQueueError.message)
       return
     }
 
-    setLobbyName('')
-    setActionLoading('')
-
-    window.location.assign(`/songwars/lobby/${lobby.id}`)
+    if (queued.some((row) => row.user_id === user.id)) {
+      window.location.assign(`/songwars/quick/${match.id}`)
+    }
   }
 
-  const joinLobby = async (lobbyId: string) => {
+  const joinQuickQueue = async () => {
     if (!user) return
 
-    setActionLoading(lobbyId)
+    setActionLoading('quick')
     setMessage('')
 
-    const { data: lobby, error: lobbyError } = await supabase
-      .from('songwars_lobbies')
+    const { data: existing, error: existingError } = await supabase
+      .from('songwars_queue')
       .select('*')
-      .eq('id', lobbyId)
+      .eq('user_id', user.id)
+      .eq('mode', 'quick')
+      .in('status', ['queued', 'matched'])
       .maybeSingle()
 
-    if (lobbyError || !lobby) {
-      console.error('Join lobby lookup error:', lobbyError)
-      setMessage('Lobby not found.')
+    if (existingError) {
+      console.error('Check quick queue error:', existingError)
+      setMessage(existingError.message)
       setActionLoading('')
       return
     }
 
-    if (lobby.status === 'finished') {
-      setMessage('This lobby is already closed.')
-      setActionLoading('')
+    if (existing?.status === 'matched' && existing.match_id) {
+      window.location.assign(`/songwars/quick/${existing.match_id}`)
       return
     }
 
-    const alreadyJoined = myLobbyIds.has(lobbyId)
-
-    if (!alreadyJoined) {
-      const { count, error: countError } = await supabase
-        .from('songwars_lobby_players')
-        .select('*', { count: 'exact', head: true })
-        .eq('lobby_id', lobbyId)
-
-      if (countError) {
-        console.error('Lobby count error:', countError)
-        setMessage(countError.message)
-        setActionLoading('')
-        return
-      }
-
-      if ((count ?? 0) >= (lobby.max_players ?? 20)) {
-        setMessage('This lobby is full.')
-        setActionLoading('')
-        return
-      }
-
-      await leaveOtherActiveLobbies()
-
+    if (!existing) {
       const { error } = await supabase
-        .from('songwars_lobby_players')
-        .upsert(
-          {
-            lobby_id: lobbyId,
-            user_id: user.id,
-            eliminated: false,
-          },
-          {
-            onConflict: 'lobby_id,user_id',
-          }
-        )
+        .from('songwars_queue')
+        .insert({
+          user_id: user.id,
+          mode: 'quick',
+          status: 'queued',
+        })
 
       if (error) {
-        console.error('Join lobby error:', error)
+        console.error('Join quick queue error:', error)
         setMessage(error.message)
         setActionLoading('')
         return
       }
     }
 
-    setJoinCode('')
+    await loadQueue()
+    await tryCreateQuickMatch()
     setActionLoading('')
-
-    window.location.assign(`/songwars/lobby/${lobbyId}`)
   }
 
-  const joinByCode = async () => {
-    const clean = joinCode.trim()
-    if (!clean) return
-    await joinLobby(clean)
+  const leaveQuickQueue = async () => {
+    if (!user) return
+
+    setActionLoading('leaveQuick')
+    setMessage('')
+
+    const { error } = await supabase
+      .from('songwars_queue')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('mode', 'quick')
+      .eq('status', 'queued')
+
+    if (error) {
+      console.error('Leave quick queue error:', error)
+      setMessage(error.message)
+      setActionLoading('')
+      return
+    }
+
+    await loadQueue()
+    setActionLoading('')
+  }
+
+  const openRanked = () => {
+    if (!isPremium) {
+      setMessage('Ranked Song Wars is locked. Upgrade to NEESH.+ to play ranked.')
+      return
+    }
+
+    setMessage('Ranked mode is next. For now, ranked leaderboard is live.')
   }
 
   if (isSongWarsChild) {
     return <Outlet />
   }
 
-  if (!ready || !user) {
+  if (!ready || !user || loading) {
     return (
       <div className="flex items-center justify-center h-full bg-zinc-950">
         <div className="w-5 h-5 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
@@ -510,6 +468,10 @@ function SongWarsPage() {
   const streak = stats?.win_streak ?? 0
   const peak = stats?.peak_elo ?? 1200
   const rank = rankFromElo(elo)
+  const quickWins = stats?.quick_wins ?? 0
+  const quickLosses = stats?.quick_losses ?? 0
+  const quickStreak = stats?.quick_win_streak ?? 0
+  const bestQuickStreak = stats?.best_quick_win_streak ?? 0
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto">
@@ -519,7 +481,7 @@ function SongWarsPage() {
             <Music2 size={16} className="text-purple-400" />
             Song Wars
           </h1>
-          <p className="text-xs text-zinc-500">1v1 ranked music battles</p>
+          <p className="text-xs text-zinc-500">Choose your mode</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -532,7 +494,7 @@ function SongWarsPage() {
           </button>
 
           <button
-            onClick={loadAll}
+            onClick={() => loadAll(true)}
             className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
           >
             <RefreshCcw size={14} />
@@ -548,12 +510,12 @@ function SongWarsPage() {
           </div>
         )}
 
-        <div className="grid lg:grid-cols-4 gap-4">
+        <div className="grid lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 bg-gradient-to-br from-purple-500/10 to-zinc-900 border border-purple-500/20 rounded-2xl p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-wider text-purple-300 mb-1">
-                  Your Rank
+                  Your Song Wars Rank
                 </p>
                 <h2 className="text-3xl font-bold text-white flex items-center gap-2">
                   {rank}
@@ -565,11 +527,11 @@ function SongWarsPage() {
               </div>
 
               <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
-                <Medal size={26} className="text-white" />
+                <Shield size={26} className="text-white" />
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mt-5">
+            <div className="grid grid-cols-4 gap-3 mt-5">
               <div className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-3">
                 <Zap size={14} className="text-yellow-400 mb-1" />
                 <p className="text-lg font-bold text-white">{xp}</p>
@@ -579,206 +541,241 @@ function SongWarsPage() {
               <div className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-3">
                 <Trophy size={14} className="text-emerald-400 mb-1" />
                 <p className="text-lg font-bold text-white">{wins}-{losses}</p>
-                <p className="text-[11px] text-zinc-500">{winRate(wins, losses)}% win rate</p>
+                <p className="text-[11px] text-zinc-500">{winRate(wins, losses)}% WR</p>
               </div>
 
               <div className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-3">
                 <Flame size={14} className="text-orange-400 mb-1" />
-                <p className="text-lg font-bold text-white">{streak}</p>
-                <p className="text-[11px] text-zinc-500">Win streak</p>
+                <p className="text-lg font-bold text-white">{quickStreak}</p>
+                <p className="text-[11px] text-zinc-500">Quick streak</p>
+              </div>
+
+              <div className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-3">
+                <Sparkles size={14} className="text-purple-400 mb-1" />
+                <p className="text-lg font-bold text-white">{bestQuickStreak}</p>
+                <p className="text-[11px] text-zinc-500">Best streak</p>
               </div>
             </div>
           </div>
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Plus size={16} className="text-zinc-400" />
-              <h3 className="text-sm font-semibold text-white">Create Lobby</h3>
+            <p className="text-xs uppercase tracking-wider text-zinc-500 mb-2">
+              Queue Status
+            </p>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3">
+                <span className="text-xs text-zinc-500 flex items-center gap-2">
+                  <Users size={14} />
+                  Quick Queue
+                </span>
+                <span className="text-sm font-bold text-white">{queueCount}/3</span>
+              </div>
+
+              <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3">
+                <span className="text-xs text-zinc-500 flex items-center gap-2">
+                  <Timer size={14} />
+                  Waiting
+                </span>
+                <span className="text-sm font-bold text-white">
+                  {isQueued ? formatTime(waitingSeconds) : '0:00'}
+                </span>
+              </div>
             </div>
-
-            <input
-              value={lobbyName}
-              onChange={(e) => setLobbyName(e.target.value)}
-              placeholder="Lobby name"
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-600 mb-3"
-            />
-
-            <button
-              onClick={createLobby}
-              disabled={actionLoading === 'create'}
-              className="w-full flex items-center justify-center gap-2 bg-white text-zinc-950 rounded-xl py-2.5 text-sm font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
-            >
-              <Swords size={15} />
-              Create
-            </button>
-          </div>
-
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Radio size={16} className="text-zinc-400" />
-              <h3 className="text-sm font-semibold text-white">Join by ID</h3>
-            </div>
-
-            <input
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value)}
-              placeholder="Paste lobby ID"
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-600 mb-3"
-            />
-
-            <button
-              onClick={joinByCode}
-              disabled={!joinCode.trim() || !!actionLoading}
-              className="w-full flex items-center justify-center gap-2 bg-zinc-800 border border-zinc-700 text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-zinc-700 transition-colors disabled:opacity-50"
-            >
-              <Users size={15} />
-              Join
-            </button>
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Open Lobbies</h2>
-                <p className="text-xs text-zinc-500">You can only be in one lobby at a time</p>
-              </div>
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden">
+            <div className="p-6 bg-gradient-to-br from-emerald-500/10 to-zinc-950 border-b border-zinc-800">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Play size={18} className="text-emerald-400" />
+                    <h2 className="text-2xl font-bold text-white">Quick Match</h2>
+                  </div>
 
-              <div className="relative w-48">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search"
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
-                />
+                  <p className="text-sm text-zinc-400">
+                    Free, fast, best of 1. Win to build your quick streak.
+                  </p>
+                </div>
+
+                <span className="text-[11px] px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                  FREE
+                </span>
               </div>
             </div>
 
-            {loading ? (
-              <div className="flex justify-center py-16">
-                <div className="w-5 h-5 border-2 border-zinc-700 border-t-white rounded-full animate-spin" />
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                  <p className="text-lg font-bold text-white">Best of 1</p>
+                  <p className="text-[11px] text-zinc-500">Fast battle</p>
+                </div>
+
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                  <p className="text-lg font-bold text-white">XP only</p>
+                  <p className="text-[11px] text-zinc-500">No ELO loss</p>
+                </div>
+
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                  <p className="text-lg font-bold text-white">3 needed</p>
+                  <p className="text-[11px] text-zinc-500">2 fight, 1 votes</p>
+                </div>
               </div>
-            ) : filteredLobbies.length === 0 ? (
-              <div className="text-center py-16 px-5">
-                <Music2 size={30} className="text-zinc-700 mx-auto mb-3" />
-                <p className="text-sm font-medium text-white mb-1">No lobbies yet</p>
-                <p className="text-xs text-zinc-500">Create the first Song Wars lobby.</p>
+
+              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-white">Looking for Match</p>
+                  <p className="text-xs text-zinc-500">{queueCount}/3 in queue</p>
+                </div>
+
+                <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-400 transition-all"
+                    style={{
+                      width: `${Math.min(100, (queueCount / 3) * 100)}%`,
+                    }}
+                  />
+                </div>
+
+                <p className="text-xs text-zinc-500 mt-3">
+                  {isQueued
+                    ? `You have been waiting ${formatTime(waitingSeconds)}.`
+                    : 'Queue starts when you press Look for Match.'}
+                </p>
               </div>
-            ) : (
-              <div className="divide-y divide-zinc-800">
-                {filteredLobbies.map((lobby) => {
-                  const count = playerCounts[lobby.id] ?? 0
-                  const joined = myLobbyIds.has(lobby.id)
-                  const full = count >= (lobby.max_players ?? 20)
-                  const isHost = lobby.host_id === user.id
 
-                  return (
-                    <div
-                      key={lobby.id}
-                      className="px-5 py-4 flex items-center justify-between gap-4 hover:bg-zinc-950/40 transition-colors"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="text-sm font-semibold text-white truncate">
-                            {lobby.name}
-                          </p>
+              {isQueued ? (
+                <button
+                  onClick={leaveQuickQueue}
+                  disabled={!!actionLoading}
+                  className="w-full py-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-semibold hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                >
+                  Cancel Queue
+                </button>
+              ) : (
+                <button
+                  onClick={joinQuickQueue}
+                  disabled={!!actionLoading}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-white text-zinc-950 text-sm font-bold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                >
+                  <Search size={16} />
+                  Look for Match
+                </button>
+              )}
 
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400">
-                            {statusLabel(lobby.status)}
-                          </span>
-
-                          {joined && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300">
-                              Joined
-                            </span>
-                          )}
-
-                          {isHost && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-300">
-                              Host
-                            </span>
-                          )}
-                        </div>
-
-                        <p className="text-xs text-zinc-500 truncate">ID: {lobby.id}</p>
-
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          <span className="text-[11px] text-zinc-500 flex items-center gap-1">
-                            <Users size={12} />
-                            {count}/{lobby.max_players ?? 20}
-                          </span>
-
-                          <span className="text-[11px] text-zinc-500">
-                            Genre: {lobby.active_genre ?? 'Not chosen'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {isHost && (
-                          <button
-                            onClick={() => closeLobby(lobby.id)}
-                            disabled={!!actionLoading}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
-                          >
-                            <XCircle size={13} />
-                            Close
-                          </button>
-                        )}
-
-                        {joined ? (
-                          <a
-                            href={`/songwars/lobby/${lobby.id}`}
-                            className="px-4 py-2 rounded-lg text-xs font-semibold transition-colors bg-zinc-800 border border-zinc-700 text-zinc-300 hover:text-white"
-                          >
-                            Enter
-                          </a>
-                        ) : (
-                          <button
-                            onClick={() => joinLobby(lobby.id)}
-                            disabled={!!actionLoading || full}
-                            className="px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 bg-white text-zinc-950 hover:bg-zinc-200"
-                          >
-                            {full ? 'Full' : 'Join'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+              <div className="text-xs text-zinc-500">
+                Quick record: {quickWins}-{quickLosses} · Current streak: {quickStreak}
               </div>
-            )}
+            </div>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 h-fit">
-            <h2 className="text-sm font-semibold text-white mb-2">Genres</h2>
-            <p className="text-xs text-zinc-500 mb-4">
-              Lobby members vote before battles start. Ties are picked randomly.
-            </p>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden relative">
+            {!isPremium && (
+              <div className="absolute inset-0 bg-zinc-950/70 backdrop-blur-[2px] z-10 flex items-center justify-center p-6">
+                <div className="text-center max-w-xs">
+                  <div className="w-14 h-14 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Lock size={24} className="text-zinc-400" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-1">Ranked Locked</h3>
+                  <p className="text-sm text-zinc-400 mb-4">
+                    Ranked Song Wars is a NEESH.+ perk.
+                  </p>
+                  <button
+                    onClick={() => navigate({ to: '/neesh-plus' })}
+                    className="px-4 py-2.5 bg-white text-zinc-950 rounded-xl text-sm font-bold hover:bg-zinc-200 transition-colors"
+                  >
+                    Upgrade to NEESH.+
+                  </button>
+                </div>
+              </div>
+            )}
 
-            <div className="flex flex-wrap gap-2">
-              {GENRES.map((genre) => (
-                <span
-                  key={genre}
-                  className="px-3 py-1.5 rounded-full bg-zinc-950 border border-zinc-800 text-xs text-zinc-400"
-                >
-                  {genre}
+            <div className="p-6 bg-gradient-to-br from-yellow-500/10 to-zinc-950 border-b border-zinc-800">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Crown size={18} className="text-yellow-400" />
+                    <h2 className="text-2xl font-bold text-white">Ranked</h2>
+                  </div>
+
+                  <p className="text-sm text-zinc-400">
+                    NEESH.+ competitive mode with ELO, ranks, and leaderboard placement.
+                  </p>
+                </div>
+
+                <span className="text-[11px] px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-yellow-300">
+                  NEESH.+
                 </span>
-              ))}
+              </div>
             </div>
 
-            <div className="mt-6 border-t border-zinc-800 pt-4">
-              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-3">
-                Next Up
-              </h3>
-              <div className="space-y-2 text-xs text-zinc-500">
-                <p>• Quick Match, XP only</p>
-                <p>• Ranked mode for NEESH.+</p>
-                <p>• Song Wars achievements</p>
-                <p>• Shareable battle result cards</p>
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                  <p className="text-lg font-bold text-white">Best of 3</p>
+                  <p className="text-[11px] text-zinc-500">Ranked battle</p>
+                </div>
+
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                  <p className="text-lg font-bold text-white">ELO</p>
+                  <p className="text-[11px] text-zinc-500">Rank changes</p>
+                </div>
+
+                <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+                  <p className="text-lg font-bold text-white">Top 500</p>
+                  <p className="text-[11px] text-zinc-500">Legend chase</p>
+                </div>
               </div>
+
+              <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4">
+                <p className="text-sm font-semibold text-white mb-1">Your Ranked Stats</p>
+                <p className="text-xs text-zinc-500">
+                  {rank} · {elo} ELO · {wins}-{losses} · {winRate(wins, losses)}% win rate
+                </p>
+              </div>
+
+              <button
+                onClick={openRanked}
+                disabled={!isPremium}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-yellow-400 text-zinc-950 text-sm font-bold hover:bg-yellow-300 transition-colors disabled:opacity-50"
+              >
+                <Swords size={16} />
+                Ranked Coming Next
+              </button>
+
+              <button
+                onClick={() => navigate({ to: '/songwars/leaderboard' })}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-zinc-950 border border-zinc-800 text-zinc-300 text-sm font-semibold hover:text-white hover:border-zinc-700 transition-colors"
+              >
+                <Trophy size={16} />
+                View Ranked Leaderboard
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+          <h2 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+            <Radio size={15} />
+            How Quick Match Works
+          </h2>
+
+          <div className="grid md:grid-cols-3 gap-3 text-xs text-zinc-500">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p className="text-white font-semibold mb-1">1. Queue</p>
+              <p>Press Look for Match. The match starts when 3 users are queued.</p>
+            </div>
+
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p className="text-white font-semibold mb-1">2. Battle</p>
+              <p>Two players submit songs. The third user listens and votes.</p>
+            </div>
+
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p className="text-white font-semibold mb-1">3. Streak</p>
+              <p>Winner gets XP and continues their quick win streak.</p>
             </div>
           </div>
         </div>
