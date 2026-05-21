@@ -2,7 +2,19 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
-import { Flame, Trophy, Target, MessageSquare, Hash, Zap, Star, Crown } from 'lucide-react'
+import {
+  Flame,
+  Trophy,
+  Target,
+  MessageSquare,
+  Hash,
+  Zap,
+  Star,
+  Crown,
+  Sparkles,
+  Users,
+  ChevronRight,
+} from 'lucide-react'
 import { VerifiedBadge } from '@/components/VerifiedBadge'
 
 export const Route = createFileRoute('/home')({
@@ -122,6 +134,7 @@ function HomePage() {
 
       const mappedChallenges: Challenge[] = BASE_CHALLENGES.map((c) => {
         const progress = c.category === 'xp' ? mappedProfile.totalXp : mappedProfile.messageCount
+
         return {
           key: c.key,
           name: c.name,
@@ -152,16 +165,86 @@ function HomePage() {
         <div>
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             Welcome back{profile?.displayName ? `, ${profile.displayName}` : ''}
-            <VerifiedBadge username={profile?.username} isPremium={isPremium} isFounderOverride={profile?.isFounderOverride} size={18} />
+            <VerifiedBadge
+              username={profile?.username}
+              isPremium={isPremium}
+              isFounderOverride={profile?.isFounderOverride}
+              size={18}
+            />
           </h2>
-          <p className="text-zinc-500 text-sm mt-0.5">Here's your activity at a glance.</p>
+          <p className="text-zinc-500 text-sm mt-0.5">
+            Here's your activity at a glance.
+          </p>
         </div>
 
+        <Link
+          to="/find-people"
+          className="block bg-gradient-to-br from-purple-500/10 via-zinc-900 to-zinc-900 border border-purple-500/20 rounded-2xl p-5 hover:border-purple-500/40 transition-colors group"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles size={17} className="text-purple-400" />
+                <h3 className="text-sm font-semibold text-white">
+                  Find People Like Me
+                </h3>
+              </div>
+
+              <p className="text-xs text-zinc-500">
+                Discover users who share your interests and start new conversations.
+              </p>
+
+              {profile?.interests && profile.interests.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {profile.interests.slice(0, 4).map((interest) => (
+                    <span
+                      key={interest}
+                      className="px-2 py-1 rounded-full bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-400"
+                    >
+                      {interest}
+                    </span>
+                  ))}
+
+                  {profile.interests.length > 4 && (
+                    <span className="px-2 py-1 rounded-full bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-500">
+                      +{profile.interests.length - 4}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="w-11 h-11 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center shrink-0 group-hover:bg-purple-500/20 transition-colors">
+              <ChevronRight size={18} className="text-purple-300" />
+            </div>
+          </div>
+        </Link>
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard icon={Zap} label="Total XP" value={profile?.totalXp?.toLocaleString() ?? '0'} color="text-yellow-400" />
-          <StatCard icon={Flame} label="Streak" value={`${profile?.currentStreak ?? 0}d`} color="text-orange-400" />
-          <StatCard icon={Trophy} label="Rank" value={rank ? `#${rank}` : '—'} color="text-emerald-400" />
-          <StatCard icon={MessageSquare} label="Messages" value={profile?.messageCount?.toLocaleString() ?? '0'} color="text-blue-400" />
+          <StatCard
+            icon={Zap}
+            label="Total XP"
+            value={profile?.totalXp?.toLocaleString() ?? '0'}
+            color="text-yellow-400"
+          />
+          <StatCard
+            icon={Flame}
+            label="Streak"
+            value={`${profile?.currentStreak ?? 0}d`}
+            color="text-orange-400"
+          />
+          <StatCard
+            icon={Trophy}
+            label="Rank"
+            value={rank ? `#${rank}` : '—'}
+            color="text-emerald-400"
+          />
+          <StatCard
+            icon={MessageSquare}
+            label="Messages"
+            value={profile?.messageCount?.toLocaleString() ?? '0'}
+            color="text-blue-400"
+          />
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
@@ -169,16 +252,30 @@ function HomePage() {
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Flame size={15} className="text-orange-400" /> Daily Streak
             </h3>
-            <span className="text-xs text-zinc-500">Best: {profile?.longestStreak ?? 0}d</span>
+            <span className="text-xs text-zinc-500">
+              Best: {profile?.longestStreak ?? 0}d
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
             {[1, 2, 3, 4].map((day) => (
               <div key={day} className="flex-1 text-center">
-                <div className={`text-xs font-medium mb-1 ${(profile?.currentStreak ?? 0) >= day ? 'text-orange-400' : 'text-zinc-600'}`}>
+                <div
+                  className={`text-xs font-medium mb-1 ${
+                    (profile?.currentStreak ?? 0) >= day
+                      ? 'text-orange-400'
+                      : 'text-zinc-600'
+                  }`}
+                >
                   Day {day}{day === 4 ? '+' : ''}
                 </div>
-                <div className={`text-lg font-bold ${(profile?.currentStreak ?? 0) >= day ? 'text-white' : 'text-zinc-700'}`}>
+                <div
+                  className={`text-lg font-bold ${
+                    (profile?.currentStreak ?? 0) >= day
+                      ? 'text-white'
+                      : 'text-zinc-700'
+                  }`}
+                >
                   {Math.min(day * 100, 400)}
                 </div>
                 <div className="text-xs text-zinc-600">XP</div>
@@ -187,7 +284,9 @@ function HomePage() {
           </div>
 
           <p className="text-xs text-zinc-500 mt-3">
-            Today's bonus: <span className="text-orange-400 font-medium">+{streakDayXp} XP</span> for your first message
+            Today's bonus:{' '}
+            <span className="text-orange-400 font-medium">+{streakDayXp} XP</span>{' '}
+            for your first message
           </p>
         </div>
 
@@ -219,12 +318,16 @@ function HomePage() {
                       </span>
                     </div>
                   </div>
-                  <span className="text-xs text-yellow-400 flex-shrink-0">+{c.xpReward} XP</span>
+                  <span className="text-xs text-yellow-400 flex-shrink-0">
+                    +{c.xpReward} XP
+                  </span>
                 </div>
               ))}
             </div>
 
-            <p className="text-xs text-zinc-600 mt-3">{completedChallenges}/{challenges.length} completed</p>
+            <p className="text-xs text-zinc-600 mt-3">
+              {completedChallenges}/{challenges.length} completed
+            </p>
           </div>
         )}
 
@@ -247,23 +350,43 @@ function HomePage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <Link to="/chat" className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <Link
+            to="/find-people"
+            className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-purple-500/40 transition-colors group"
+          >
+            <Users className="text-purple-400 group-hover:text-purple-300 mb-2" size={18} />
+            <p className="text-sm font-medium text-white">Find People</p>
+            <p className="text-xs text-zinc-600 mt-0.5">Similar interests</p>
+          </Link>
+
+          <Link
+            to="/chat"
+            className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group"
+          >
             <Hash className="text-zinc-500 group-hover:text-white mb-2" size={18} />
             <p className="text-sm font-medium text-white">Interest Chat</p>
             <p className="text-xs text-zinc-600 mt-0.5">Join rooms by topic</p>
           </Link>
 
-          <Link to="/community" className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group">
+          <Link
+            to="/community"
+            className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group"
+          >
             <MessageSquare className="text-zinc-500 group-hover:text-white mb-2" size={18} />
             <p className="text-sm font-medium text-white">Community</p>
             <p className="text-xs text-zinc-600 mt-0.5">Global chat</p>
           </Link>
 
-          <Link to="/premium" className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group">
+          <Link
+            to="/premium"
+            className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-600 transition-colors group"
+          >
             <Crown className="text-yellow-400 group-hover:text-yellow-300 mb-2" size={18} />
             <p className="text-sm font-medium text-white">NEESH.+</p>
-            <p className="text-xs text-zinc-600 mt-0.5">{isPremium ? 'Premium active' : 'Upgrade now'}</p>
+            <p className="text-xs text-zinc-600 mt-0.5">
+              {isPremium ? 'Premium active' : 'Upgrade now'}
+            </p>
           </Link>
         </div>
       </div>
@@ -271,7 +394,12 @@ function HomePage() {
   )
 }
 
-function StatCard({ icon: Icon, label, value, color }: {
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  color,
+}: {
   icon: React.ElementType
   label: string
   value: string
