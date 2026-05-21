@@ -91,6 +91,7 @@ function SongWarsPage() {
   const isSongWarsChild =
     location.pathname.startsWith('/songwars/lobby/') ||
     location.pathname.startsWith('/songwars/leaderboard') ||
+    location.pathname.startsWith('/songwars/ranks') ||
     location.pathname.startsWith('/songwars/quick/') ||
     location.pathname.startsWith('/songwars/ranked/')
 
@@ -669,6 +670,14 @@ function SongWarsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => navigate({ to: '/songwars/ranks' })}
+            className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
+          >
+            <Crown size={14} />
+            Ranks
+          </button>
+
           <button
             onClick={() => navigate({ to: '/songwars/leaderboard' })}
             className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
