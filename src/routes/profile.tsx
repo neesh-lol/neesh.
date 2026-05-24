@@ -166,49 +166,56 @@ function getPremiumCardStyle(
   }
 }
 
-function getProfileBackgroundStyle(background: string): React.CSSProperties {
+function getProfileBackgroundStyle(
+  background: string,
+  primary?: string,
+  secondary?: string
+): React.CSSProperties {
+  const p = primary || '#a855f7'
+  const s = secondary || '#06b6d4'
+
   if (background === 'midnight') {
     return {
       background:
-        'radial-gradient(circle at 25% 0%, rgba(124,58,237,.28), transparent 32%), radial-gradient(circle at 80% 12%, rgba(236,72,153,.16), transparent 28%), #09090b',
+        `radial-gradient(circle at 25% 0%, ${p}44, transparent 34%), radial-gradient(circle at 80% 12%, ${s}2f, transparent 30%), #09090b`,
     }
   }
 
   if (background === 'aurora') {
     return {
       background:
-        'radial-gradient(circle at 15% 0%, rgba(168,85,247,.32), transparent 34%), radial-gradient(circle at 85% 5%, rgba(6,182,212,.26), transparent 32%), linear-gradient(180deg, #09090b, #111827)',
+        `radial-gradient(circle at 15% 0%, ${p}55, transparent 35%), radial-gradient(circle at 85% 5%, ${s}4a, transparent 34%), linear-gradient(180deg, #09090b, #111827)`,
     }
   }
 
   if (background === 'ember') {
     return {
       background:
-        'radial-gradient(circle at 20% 0%, rgba(249,115,22,.25), transparent 34%), radial-gradient(circle at 80% 10%, rgba(239,68,68,.22), transparent 30%), #09090b',
+        `radial-gradient(circle at 20% 0%, ${p}4a, transparent 35%), radial-gradient(circle at 80% 10%, ${s}3d, transparent 32%), #09090b`,
     }
   }
 
   if (background === 'ocean') {
     return {
       background:
-        'radial-gradient(circle at 30% 0%, rgba(14,165,233,.30), transparent 35%), radial-gradient(circle at 90% 20%, rgba(59,130,246,.18), transparent 30%), #09090b',
+        `radial-gradient(circle at 30% 0%, ${p}4d, transparent 36%), radial-gradient(circle at 90% 20%, ${s}33, transparent 32%), #09090b`,
     }
   }
 
   if (background === 'mono') {
     return {
       background:
-        'radial-gradient(circle at top, rgba(255,255,255,.10), transparent 30%), linear-gradient(180deg, #18181b, #09090b)',
-    }
-  }
+        `radial-gradient(circle at top, ${p}22, transparent 32%), radial-gradient(circle at bottom, ${s}18, transparent 34%), linear-gradient(180deg, #18181b, #09090b)`,function getNameEffectStyle(
+  effect: string,
+  primary?: string,
+  secondary?: string
+): React.CSSProperties {
+  const p = primary || '#a855f7'
+  const s = secondary || '#06b6d4'
 
-  return { background: '#09090b' }
-}
-
-function getNameEffectStyle(effect: string): React.CSSProperties {
   if (effect === 'gradient') {
     return {
-      background: 'linear-gradient(90deg, #a855f7, #06b6d4, #ec4899)',
+      background: `linear-gradient(90deg, ${p}, ${s}, #ffffff)`,
       WebkitBackgroundClip: 'text',
       backgroundClip: 'text',
       color: 'transparent',
@@ -218,15 +225,15 @@ function getNameEffectStyle(effect: string): React.CSSProperties {
 
   if (effect === 'neon') {
     return {
-      color: '#f5d0fe',
-      textShadow: '0 0 8px rgba(236,72,153,.9), 0 0 18px rgba(168,85,247,.65)',
+      color: '#ffffff',
+      textShadow: `0 0 8px ${p}, 0 0 18px ${s}, 0 0 28px ${p}`,
       fontWeight: 800,
     }
   }
 
   if (effect === 'gold') {
     return {
-      background: 'linear-gradient(90deg, #fde68a, #f59e0b, #fff7ed)',
+      background: `linear-gradient(90deg, #fde68a, ${p}, #fff7ed)`,
       WebkitBackgroundClip: 'text',
       backgroundClip: 'text',
       color: 'transparent',
@@ -236,9 +243,16 @@ function getNameEffectStyle(effect: string): React.CSSProperties {
 
   if (effect === 'ice') {
     return {
-      color: '#bae6fd',
-      textShadow: '0 0 8px rgba(14,165,233,.85), 0 0 18px rgba(125,211,252,.45)',
+      color: '#e0f2fe',
+      textShadow: `0 0 8px ${s}, 0 0 18px ${p}`,
       fontWeight: 800,
+    }
+  }
+
+  return {}
+}
+
+function ProfilePage00,
     }
   }
 
@@ -545,8 +559,16 @@ function ProfilePage() {
     profile.profileColorPrimary,
     profile.profileColorSecondary
   )
-  const profileBackgroundStyle = getProfileBackgroundStyle(isPremium ? profile.profileBackground : 'none')
-  const nameEffectStyle = getNameEffectStyle(isPremium ? profile.nameEffect : 'none')
+  const profileBackgroundStyle = getProfileBackgroundStyle(
+    isPremium ? profile.profileBackground : 'none',
+    profile.profileColorPrimary,
+    profile.profileColorSecondary
+  )
+  const nameEffectStyle = getNameEffectStyle(
+    isPremium ? profile.nameEffect : 'none',
+    profile.profileColorPrimary,
+    profile.profileColorSecondary
+  )
 
   return (
     <div className="flex flex-col min-h-screen overflow-y-auto pb-24" style={profileBackgroundStyle}>
@@ -845,13 +867,13 @@ function ProfilePage() {
 
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-2">
-                Discord-Style Profile Background
+                Profile Background
               </label>
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 mb-4">
                 <div
                   className="h-24 rounded-xl border border-zinc-800 mb-3"
-                  style={getProfileBackgroundStyle(profile.profileBackground)}
+                  style={getProfileBackgroundStyle(profile.profileBackground, profile.profileColorPrimary, profile.profileColorSecondary)}
                 />
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -883,7 +905,7 @@ function ProfilePage() {
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 mb-4">
                 <div className="h-16 rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-center mb-3">
-                  <p className="text-lg font-bold" style={getNameEffectStyle(profile.nameEffect)}>
+                  <p className="text-lg font-bold" style={getNameEffectStyle(profile.nameEffect, profile.profileColorPrimary, profile.profileColorSecondary)}>
                     {profile.displayName || 'Your Name'}
                   </p>
                 </div>
@@ -947,14 +969,14 @@ function ProfilePage() {
                 </div>
 
                 <p className="text-[10px] text-zinc-500 mt-3">
-                  These styles apply to your main profile card. They look cleaner than page-wide dot effects.
+                  Your selected colors control the profile background, profile card glow, and name effects.
                 </p>
               </div>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-2">
-                <span className="flex items-center gap-1.5"><Palette size={12} /> Profile Gradient Colors</span>
+                <span className="flex items-center gap-1.5"><Palette size={12} /> Profile Colors</span>
               </label>
               <div className="rounded-xl border border-zinc-800 overflow-hidden mb-3">
                 <div
@@ -966,7 +988,7 @@ function ProfilePage() {
                   }
                 />
                 <div className="bg-zinc-900 px-3 py-2 flex items-center justify-between">
-                  <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Color Preview</span>
+                  <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Profile Color Preview</span>
                   {profile.profileColorPrimary && (
                     <button
                       type="button"
