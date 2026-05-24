@@ -778,7 +778,7 @@ function AppShell() {
   const closeMobile = () => setMobileOpen(false)
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-white">
+    <div className="flex h-screen overflow-hidden bg-zinc-950 text-white">
       <ToastStack toasts={toasts} onClose={removeToast} onOpen={openToast} />
 
       <button
@@ -791,7 +791,7 @@ function AppShell() {
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-50 bg-black/60" onClick={closeMobile}>
           <aside
-            className="w-56 h-full bg-zinc-950 border-r border-zinc-800 flex flex-col"
+            className="w-56 h-full bg-zinc-950 border-r border-zinc-800 flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-5 border-b border-zinc-800 flex items-center justify-between">
@@ -811,7 +811,7 @@ function AppShell() {
         </div>
       )}
 
-      <aside className="hidden md:flex w-56 flex-shrink-0 border-r border-zinc-800 flex-col">
+      <aside className="hidden md:flex w-56 h-screen flex-shrink-0 border-r border-zinc-800 flex-col overflow-hidden">
         <div className="px-4 py-5 border-b border-zinc-800">
           <img src="/neesh-logo.png" alt="neesh" className="h-16" />
         </div>
@@ -823,7 +823,7 @@ function AppShell() {
         />
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <Outlet />
       </main>
     </div>
@@ -845,7 +845,7 @@ function SidebarContent({
 }) {
   return (
     <>
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-1">
         <NavItem to="/home" icon={Home} label="Home" onClick={onNavClick} />
         <NavItem to="/find-people" icon={Sparkles} label="Find People" onClick={onNavClick} />
         <NavItem to="/chat" icon={Hash} label="Interest Chat" onClick={onNavClick} />
@@ -862,7 +862,7 @@ function SidebarContent({
         <NavItem to="/premium-chat" icon={Crown} label="NEESH.+ Chat" onClick={onNavClick} />
       </nav>
 
-      <div className="p-3 border-t border-zinc-800 space-y-1">
+      <div className="shrink-0 p-3 border-t border-zinc-800 space-y-1">
         <NavItem to="/profile" icon={User} label="Profile" onClick={onNavClick} />
         <NavItem to="/premium" icon={Crown} label="NEESH.+" onClick={onNavClick} />
         <NavItem to="/settings" icon={Settings} label="Settings" onClick={onNavClick} />
@@ -878,7 +878,7 @@ function SidebarContent({
         </button>
       </div>
 
-      <div className="px-4 py-3 border-t border-zinc-800 flex flex-wrap gap-x-3 gap-y-1">
+      <div className="shrink-0 px-4 py-3 border-t border-zinc-800 flex flex-wrap gap-x-3 gap-y-1">
         <Link to="/terms" onClick={onNavClick} className="text-[10px] text-zinc-600 hover:text-zinc-400 transition-colors">
           Terms
         </Link>
