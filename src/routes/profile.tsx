@@ -29,15 +29,14 @@ const GRADIENT_PRESETS = [
 ]
 
 const PROFILE_EFFECTS = [
-  { value: 'none', label: 'None' },
-  { value: 'gradient', label: 'Animated Gradient' },
-  { value: 'particles', label: 'Particles' },
-  { value: 'snow', label: 'Snow' },
-  { value: 'vhs', label: 'VHS Static' },
-  { value: 'matrix', label: 'Matrix Rain' },
-  { value: 'neon', label: 'Neon Glow' },
-  { value: 'stars', label: 'Stars' },
-  { value: 'sparkles', label: 'Sparkles' },
+  { value: 'none', label: 'None', description: 'Clean default card' },
+  { value: 'aurora', label: 'Aurora', description: 'Purple/cyan premium glow' },
+  { value: 'glass', label: 'Glass', description: 'Frosted dark glass' },
+  { value: 'neon', label: 'Neon', description: 'Pink/purple edge glow' },
+  { value: 'cyber', label: 'Cyber', description: 'Blue tech grid' },
+  { value: 'fire', label: 'Fire', description: 'Red/orange heat glow' },
+  { value: 'frost', label: 'Frost', description: 'Cold blue shine' },
+  { value: 'vhs', label: 'VHS', description: 'Retro scanline card' },
 ]
 
 interface Profile {
@@ -72,6 +71,80 @@ function DefaultAvatar({ size = 64 }: { size?: number }) {
       <ellipse cx="32" cy="54" rx="18" ry="14" fill="#a1a1aa" />
     </svg>
   )
+}
+
+function getPremiumCardStyle(
+  effect: string,
+  primary?: string,
+  secondary?: string
+): React.CSSProperties {
+  const p = primary || '#a855f7'
+  const s = secondary || '#06b6d4'
+
+  if (effect === 'aurora') {
+    return {
+      background: `radial-gradient(circle at 20% 20%, ${p}66, transparent 35%), radial-gradient(circle at 85% 15%, ${s}55, transparent 30%), linear-gradient(135deg, rgba(24,24,27,.98), rgba(9,9,11,.96))`,
+      boxShadow: `0 0 35px ${p}33, inset 0 0 35px ${s}12`,
+      borderColor: `${p}88`,
+    }
+  }
+
+  if (effect === 'glass') {
+    return {
+      background: 'linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.025))',
+      backdropFilter: 'blur(18px)',
+      boxShadow: '0 18px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.14)',
+      borderColor: 'rgba(255,255,255,.18)',
+    }
+  }
+
+  if (effect === 'neon') {
+    return {
+      background: 'linear-gradient(135deg, rgba(24,24,27,.98), rgba(9,9,11,.98))',
+      boxShadow: '0 0 18px rgba(236,72,153,.75), 0 0 42px rgba(168,85,247,.4), inset 0 0 28px rgba(236,72,153,.12)',
+      borderColor: 'rgba(236,72,153,.85)',
+    }
+  }
+
+  if (effect === 'cyber') {
+    return {
+      backgroundImage:
+        'linear-gradient(rgba(34,211,238,.10) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,.10) 1px, transparent 1px), linear-gradient(135deg, rgba(6,182,212,.16), rgba(124,58,237,.10), rgba(9,9,11,.98))',
+      backgroundSize: '28px 28px, 28px 28px, 100% 100%',
+      boxShadow: '0 0 28px rgba(34,211,238,.22), inset 0 0 30px rgba(34,211,238,.08)',
+      borderColor: 'rgba(34,211,238,.45)',
+    }
+  }
+
+  if (effect === 'fire') {
+    return {
+      background: 'radial-gradient(circle at 25% 110%, rgba(239,68,68,.55), transparent 38%), radial-gradient(circle at 80% 115%, rgba(249,115,22,.48), transparent 36%), linear-gradient(135deg, rgba(24,24,27,.98), rgba(9,9,11,.98))',
+      boxShadow: '0 0 34px rgba(249,115,22,.28), inset 0 -24px 42px rgba(239,68,68,.10)',
+      borderColor: 'rgba(249,115,22,.55)',
+    }
+  }
+
+  if (effect === 'frost') {
+    return {
+      background: 'radial-gradient(circle at 50% -20%, rgba(125,211,252,.36), transparent 38%), linear-gradient(135deg, rgba(14,165,233,.12), rgba(9,9,11,.98))',
+      boxShadow: '0 0 30px rgba(14,165,233,.18), inset 0 0 28px rgba(125,211,252,.08)',
+      borderColor: 'rgba(125,211,252,.5)',
+    }
+  }
+
+  if (effect === 'vhs') {
+    return {
+      background:
+        'repeating-linear-gradient(0deg, rgba(255,255,255,.035), rgba(255,255,255,.035) 1px, transparent 1px, transparent 5px), linear-gradient(135deg, rgba(39,39,42,.98), rgba(9,9,11,.98))',
+      boxShadow: '0 0 24px rgba(255,255,255,.08), inset 0 0 26px rgba(255,255,255,.035)',
+      borderColor: 'rgba(255,255,255,.16)',
+    }
+  }
+
+  return {
+    background: 'rgba(24,24,27,.92)',
+    borderColor: 'rgb(39,39,42)',
+  }
 }
 
 function ProfilePage() {
@@ -215,25 +288,25 @@ function ProfilePage() {
   }
 
   const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0]
-  const hasPremiumAccess =
-    profile.isPremium ||
-    profile.username === FOUNDER_USERNAME ||
-    profile.isFounderOverride
+    const file = e.target.files?.[0]
+    const hasPremiumAccess =
+      profile.isPremium ||
+      profile.username === FOUNDER_USERNAME ||
+      profile.isFounderOverride
 
-  if (!file || !hasPremiumAccess) return
+    if (!file || !hasPremiumAccess) return
 
-  if (file.size > 5 * 1024 * 1024) {
-    setError('Banner must be under 5MB')
-    return
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Banner must be under 5MB')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      setProfile((p) => ({ ...p, bannerUrl: reader.result as string }))
+    }
+    reader.readAsDataURL(file)
   }
-
-  const reader = new FileReader()
-  reader.onload = () => {
-    setProfile((p) => ({ ...p, bannerUrl: reader.result as string }))
-  }
-  reader.readAsDataURL(file)
-}
 
   const loadFollowers = async () => {
     setFollowersList([])
@@ -279,6 +352,10 @@ function ProfilePage() {
     setError('')
 
     const usernameChanged = usernameInput !== (profile.username ?? '')
+    const hasPremiumAccess =
+      profile.isPremium ||
+      profile.username === FOUNDER_USERNAME ||
+      profile.isFounderOverride
 
     const updates: any = {
       id: user.id,
@@ -288,7 +365,7 @@ function ProfilePage() {
       avatar_url: profile.avatarUrl,
       banner_url: profile.bannerUrl,
       profile_theme: profile.profileTheme,
-      profile_effect: isPremium ? profile.profileEffect : 'none',
+      profile_effect: hasPremiumAccess ? profile.profileEffect : 'none',
       profile_color_primary: profile.profileColorPrimary,
       profile_color_secondary: profile.profileColorSecondary,
       interests: profile.interests,
@@ -356,13 +433,15 @@ function ProfilePage() {
     ? { background: `linear-gradient(135deg, ${profile.profileColorPrimary}, ${profile.profileColorSecondary})` }
     : undefined
 
-  const profileEffectClass =
-    isPremium && profile.profileEffect && profile.profileEffect !== 'none'
-      ? `profile-effect-${profile.profileEffect}`
-      : ''
+  const profileEffect = isPremium ? profile.profileEffect || 'none' : 'none'
+  const premiumCardStyle = getPremiumCardStyle(
+    profileEffect,
+    profile.profileColorPrimary,
+    profile.profileColorSecondary
+  )
 
   return (
-    <div className={`flex flex-col h-full bg-zinc-950 overflow-y-auto ${profileEffectClass}`}>
+    <div className="flex flex-col min-h-screen bg-zinc-950 overflow-y-auto pb-24">
       {isPremium && profile.bannerUrl ? (
         <div className="relative h-32 md:h-40 flex-shrink-0">
           <img src={profile.bannerUrl} alt="" className="w-full h-full object-cover" />
@@ -410,8 +489,7 @@ function ProfilePage() {
 
       <div className="max-w-lg mx-auto w-full px-5 py-8 space-y-6">
         {hasGradient ? (
-          <div className="rounded-xl p-px" style={{ background: `linear-gradient(135deg, ${profile.profileColorPrimary}, ${profile.profileColorSecondary})` }}>
-            <div className="bg-zinc-950 rounded-xl p-4 flex items-center gap-5">
+          <div className="rounded-2xl border p-4 flex items-center gap-5 overflow-hidden" style={premiumCardStyle}>
               <div className="relative">
                 {profile.avatarUrl ? (
                   <img
@@ -451,10 +529,9 @@ function ProfilePage() {
                 {profile.username && <p className="text-xs text-zinc-500">@{profile.username}</p>}
                 <p className="text-xs text-zinc-600">{user.email}</p>
               </div>
-            </div>
           </div>
         ) : (
-          <div className="flex items-center gap-5">
+          <div className="rounded-2xl border p-4 flex items-center gap-5 overflow-hidden" style={premiumCardStyle}>
             <div className="relative">
               {profile.avatarUrl ? (
                 <img
@@ -660,11 +737,20 @@ function ProfilePage() {
 
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-2">
-                Background Effect
+                Premium Profile Style
               </label>
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 mb-4">
-                <div className={`h-20 rounded-lg border border-zinc-800 bg-zinc-950 mb-3 ${profile.profileEffect !== 'none' ? `profile-effect-${profile.profileEffect}` : ''}`} />
+                <div
+                  className="h-24 rounded-xl border overflow-hidden mb-3"
+                  style={getPremiumCardStyle(profile.profileEffect, profile.profileColorPrimary, profile.profileColorSecondary)}
+                >
+                  <div className="h-full w-full flex items-center justify-center">
+                    <p className="text-xs font-semibold text-white/80">
+                      {PROFILE_EFFECTS.find((e) => e.value === profile.profileEffect)?.label ?? 'None'} Preview
+                    </p>
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {PROFILE_EFFECTS.map((effect) => (
@@ -672,26 +758,31 @@ function ProfilePage() {
                       key={effect.value}
                       type="button"
                       onClick={() => setProfile((p) => ({ ...p, profileEffect: effect.value }))}
-                      className={`px-3 py-2 rounded-lg border text-xs transition-colors ${
+                      className={`rounded-lg border p-2 text-left transition-colors ${
                         profile.profileEffect === effect.value
                           ? 'border-white bg-white text-zinc-950'
                           : 'border-zinc-700 bg-zinc-950 text-zinc-400 hover:text-white hover:border-zinc-500'
                       }`}
                     >
-                      {effect.label}
+                      <span className="block text-xs font-semibold">{effect.label}</span>
+                      <span className={`block text-[10px] mt-0.5 ${
+                        profile.profileEffect === effect.value ? 'text-zinc-600' : 'text-zinc-600'
+                      }`}>
+                        {effect.description}
+                      </span>
                     </button>
                   ))}
                 </div>
 
                 <p className="text-[10px] text-zinc-500 mt-3">
-                  NEESH.+ background effects appear on your profile page. Make sure the matching CSS is in styles.css.
+                  These styles apply to your main profile card. They look cleaner than page-wide dot effects.
                 </p>
               </div>
             </div>
 
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-2">
-                <span className="flex items-center gap-1.5"><Palette size={12} /> Profile Gradient</span>
+                <span className="flex items-center gap-1.5"><Palette size={12} /> Profile Gradient Colors</span>
               </label>
               <div className="rounded-xl border border-zinc-800 overflow-hidden mb-3">
                 <div
@@ -703,7 +794,7 @@ function ProfilePage() {
                   }
                 />
                 <div className="bg-zinc-900 px-3 py-2 flex items-center justify-between">
-                  <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Preview</span>
+                  <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Color Preview</span>
                   {profile.profileColorPrimary && (
                     <button
                       type="button"
