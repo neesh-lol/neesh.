@@ -215,17 +215,51 @@ function ChatPage() {
     }
   }
 
+  const awardBadge = async (badgeId: string) => {
+    if (!user) return
+
+    const { error } = await supabase
+      .from('user_badges')
+      .upsert({
+        user_id: user.id,
+        badge_id: badgeId,
+      })
+
+    if (error) {
+      console.error(`Badge award failed for ${badgeId}:`, error)
+    }
+  }
+
+  const awardMessageBadges = async (messageCount: number) => {
+    if (messageCount >= 1) {
+      await awardBadge('first_message')
+    }
+
+    if (messageCount >= 100) {
+      await awardBadge('hundred_messages')
+    }
+
+    if (messageCount >= 1000) {
+      await awardBadge('thousand_messages')
+    }
+
+    if (messageCount >= 10000) {
+      await awardBadge('ten_thousand_messages')
+    }
+  }
+
   const awardXp = async () => {
     if (!user) return
 
     const currentXp = myProfile?.total_xp ?? 0
     const currentMessages = myProfile?.message_count ?? 0
+    const newMessageCount = currentMessages + 1
 
     const { data, error } = await supabase
       .from('profiles')
       .update({
         total_xp: currentXp + 10,
-        message_count: currentMessages + 1,
+        message_count: newMessageCount,
       })
       .eq('id', user.id)
       .select()
@@ -237,6 +271,8 @@ function ChatPage() {
       setTimeout(() => setCooldownMsg(''), 3000)
       return
     }
+
+    await awardMessageBadges(newMessageCount)
 
     if (data) setMyProfile(data)
   }
