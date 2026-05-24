@@ -11,25 +11,11 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      meta: [
-  { charSet: 'utf-8' },
-  { name: 'viewport', content: 'width=device-width, initial-scale=1' },
 
-  {
-    name: 'google-site-verification',
-    content: 'HABD8juTPxzKdsHVqnIvpnZjnS-X846PqFO1bxrw6DY',
-  },
-
-  {
-    title: 'neesh. | Meet People Who Share Your Interests',
-  },
-  {
-    name: 'description',
-    content:
-      'Join interest-based communities, chat with like-minded people, make friends, and discover new conversations on neesh.',
-  },
-]
-
+      {
+        name: 'google-site-verification',
+        content: 'HABD8juTPxzKdsHVqnIvpnZjnS-X846PqFO1bxrw6DY',
+      },
       {
         title: 'neesh. | Meet People Who Share Your Interests',
       },
@@ -38,7 +24,6 @@ export const Route = createRootRoute({
         content:
           'Join interest-based communities, chat with like-minded people, make friends, and discover new conversations on neesh.',
       },
-
       {
         property: 'og:title',
         content: 'neesh. | Meet People Who Share Your Interests',
@@ -56,7 +41,6 @@ export const Route = createRootRoute({
         property: 'og:url',
         content: 'https://neesh.lol',
       },
-
       {
         name: 'twitter:card',
         content: 'summary_large_image',
