@@ -44,7 +44,7 @@ type LeaderboardRow = StatsRow & {
 }
 
 function rankFromElo(elo: number, position: number) {
-  if (position <= 500) return 'Legend'
+  if (elo >= 1600 && position <= 500) return 'Legend'
   if (elo >= 2200) return 'Champion'
   if (elo >= 1900) return 'Master'
   if (elo >= 1600) return 'Diamond'
@@ -98,6 +98,7 @@ function SongWarsLeaderboardPage() {
     const { data: statsRows, error: statsError } = await supabase
       .from('songwars_stats')
       .select('*')
+      .gte('elo', 1600)
       .order('elo', { ascending: false })
       .limit(500)
 
@@ -217,7 +218,7 @@ function SongWarsLeaderboardPage() {
                   Top 500
                 </h2>
                 <p className="text-sm text-zinc-400 mt-1">
-                  Legend rank is reserved for the top 500 ranked players.
+                  Only players with 1600+ ELO can appear here. Top 500 Legend players are ranked by ELO.
                 </p>
               </div>
 
@@ -252,7 +253,7 @@ function SongWarsLeaderboardPage() {
                 Rankings
               </h2>
               <p className="text-xs text-zinc-500">
-                Sorted by highest ELO
+                Only Legend-qualified players are shown
               </p>
             </div>
 
@@ -268,8 +269,8 @@ function SongWarsLeaderboardPage() {
           ) : filteredRows.length === 0 ? (
             <div className="text-center py-16 px-5">
               <Music2 size={30} className="text-zinc-700 mx-auto mb-3" />
-              <p className="text-sm font-medium text-white mb-1">No ranked players yet</p>
-              <p className="text-xs text-zinc-500">Ranked Song Wars results will show here.</p>
+              <p className="text-sm font-medium text-white mb-1">No Legend players yet</p>
+              <p className="text-xs text-zinc-500">Reach 1600 ELO to appear on the ranked leaderboard.</p>
             </div>
           ) : (
             <div className="divide-y divide-zinc-800">
