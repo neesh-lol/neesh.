@@ -11,12 +11,53 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'neesh' },
+
+      {
+        title: 'neesh. | Meet People Who Share Your Interests',
+      },
+      {
+        name: 'description',
+        content:
+          'Join interest-based communities, chat with like-minded people, make friends, and discover new conversations on neesh.',
+      },
+
+      {
+        property: 'og:title',
+        content: 'neesh. | Meet People Who Share Your Interests',
+      },
+      {
+        property: 'og:description',
+        content:
+          'Join interest-based communities, chat with like-minded people, make friends, and discover new conversations on neesh.',
+      },
+      {
+        property: 'og:type',
+        content: 'website',
+      },
+      {
+        property: 'og:url',
+        content: 'https://neesh.lol',
+      },
+
+      {
+        name: 'twitter:card',
+        content: 'summary_large_image',
+      },
+      {
+        name: 'twitter:title',
+        content: 'neesh. | Meet People Who Share Your Interests',
+      },
+      {
+        name: 'twitter:description',
+        content:
+          'Join interest-based communities, chat with like-minded people, make friends, and discover new conversations on neesh.',
+      },
     ],
     links: [
       { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
       { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/favicon-32x32.png' },
       { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
+      { rel: 'canonical', href: 'https://neesh.lol' },
     ],
   }),
   shellComponent: RootDocument,
@@ -31,9 +72,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <IdentityProvider>
-          <CallbackHandler>
-            {children}
-          </CallbackHandler>
+          <CallbackHandler>{children}</CallbackHandler>
         </IdentityProvider>
         <Scripts />
       </body>
@@ -197,7 +236,6 @@ function AppShell() {
 
   const pushToast = (toast: Omit<AppToast, 'id'>) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-
     setToasts((prev) => [{ ...toast, id }, ...prev].slice(0, 4))
 
     setTimeout(() => {
@@ -279,9 +317,7 @@ function AppShell() {
         return
       }
 
-      const completed = data?.onboarding_completed === true
-
-      setOnboardingCompleted(completed)
+      setOnboardingCompleted(data?.onboarding_completed === true)
       setOnboardingChecked(true)
     }
 
@@ -362,44 +398,32 @@ function AppShell() {
     const markOnline = async () => {
       const now = new Date().toISOString()
 
-      const { error } = await supabase
-        .from('user_presence')
-        .upsert({
-          user_id: user.id,
-          status: 'online',
-          last_seen: now,
-          updated_at: now,
-        })
-
-      if (error) {
-        console.error('Presence online error:', error)
-      }
+      await supabase.from('user_presence').upsert({
+        user_id: user.id,
+        status: 'online',
+        last_seen: now,
+        updated_at: now,
+      })
 
       await supabase
         .from('profiles')
-        .update({
-          last_seen_at: now,
-        })
+        .update({ last_seen_at: now })
         .eq('id', user.id)
     }
 
     const markOffline = async () => {
       const now = new Date().toISOString()
 
-      await supabase
-        .from('user_presence')
-        .upsert({
-          user_id: user.id,
-          status: 'offline',
-          last_seen: now,
-          updated_at: now,
-        })
+      await supabase.from('user_presence').upsert({
+        user_id: user.id,
+        status: 'offline',
+        last_seen: now,
+        updated_at: now,
+      })
 
       await supabase
         .from('profiles')
-        .update({
-          last_seen_at: now,
-        })
+        .update({ last_seen_at: now })
         .eq('id', user.id)
     }
 
@@ -431,41 +455,29 @@ function AppShell() {
 
     const loadNotificationCounts = async () => {
       try {
-        const { count: pendingFriends, error: friendsError } = await supabase
+        const { count: pendingFriends } = await supabase
           .from('friendships')
           .select('*', { count: 'exact', head: true })
           .eq('receiver_id', user.id)
           .eq('status', 'pending')
 
-        if (friendsError) {
-          console.error('Pending friend count error:', friendsError)
-        } else {
-          setPendingCount(pendingFriends ?? 0)
-        }
+        setPendingCount(pendingFriends ?? 0)
 
-        const { count: unreadMessages, error: unreadError } = await supabase
+        const { count: unreadMessages } = await supabase
           .from('direct_messages')
           .select('*', { count: 'exact', head: true })
           .eq('receiver_id', user.id)
           .is('read_at', null)
 
-        if (unreadError) {
-          console.error('Unread DM count error:', unreadError)
-        } else {
-          setUnreadDms(unreadMessages ?? 0)
-        }
+        setUnreadDms(unreadMessages ?? 0)
 
-        const { count: unreadNotifs, error: notifError } = await supabase
+        const { count: unreadNotifs } = await supabase
           .from('notifications')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .is('read_at', null)
 
-        if (notifError) {
-          console.error('Unread notification count error:', notifError)
-        } else {
-          setUnreadNotifications(unreadNotifs ?? 0)
-        }
+        setUnreadNotifications(unreadNotifs ?? 0)
       } catch (error) {
         console.error('Notification count load error:', error)
       }
@@ -498,20 +510,14 @@ function AppShell() {
       body: string
       link: string
     }) => {
-      const { error } = await supabase
-        .from('notifications')
-        .insert({
-          user_id: userId,
-          actor_id: actorId ?? null,
-          type,
-          title,
-          body,
-          link,
-        })
-
-      if (error) {
-        console.error('Save notification error:', error)
-      }
+      await supabase.from('notifications').insert({
+        user_id: userId,
+        actor_id: actorId ?? null,
+        type,
+        title,
+        body,
+        link,
+      })
     }
 
     loadNotificationCounts()
@@ -663,7 +669,9 @@ function AppShell() {
 
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('current_streak,longest_streak,last_login_streak_at,is_premium,is_founder_override,username,streak_freezes_remaining,streak_freezes_reset_month')
+        .select(
+          'current_streak,longest_streak,last_login_streak_at,is_premium,is_founder_override,username,streak_freezes_remaining,streak_freezes_reset_month'
+        )
         .eq('id', user.id)
         .maybeSingle()
 
@@ -687,7 +695,9 @@ function AppShell() {
 
       const currentStreak = profile.current_streak ?? 0
       const longestStreak = profile.longest_streak ?? 0
-      const lastLogin = profile.last_login_streak_at ? new Date(profile.last_login_streak_at) : null
+      const lastLogin = profile.last_login_streak_at
+        ? new Date(profile.last_login_streak_at)
+        : null
 
       let newStreak = currentStreak
 
@@ -712,7 +722,7 @@ function AppShell() {
         }
       }
 
-      const { error: updateError } = await supabase
+      await supabase
         .from('profiles')
         .update({
           current_streak: newStreak,
@@ -722,10 +732,6 @@ function AppShell() {
           streak_freezes_reset_month: resetMonth,
         })
         .eq('id', user.id)
-
-      if (updateError) {
-        console.error('Streak update error:', updateError)
-      }
     }
 
     updateLoginStreak()
@@ -782,7 +788,10 @@ function AppShell() {
 
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-50 bg-black/60" onClick={closeMobile}>
-          <aside className="w-56 h-full bg-zinc-950 border-r border-zinc-800 flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <aside
+            className="w-56 h-full bg-zinc-950 border-r border-zinc-800 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="px-4 py-5 border-b border-zinc-800 flex items-center justify-between">
               <img src="/neesh-logo.png" alt="neesh" className="h-24" />
               <button onClick={closeMobile} className="text-zinc-400 hover:text-white">
@@ -845,7 +854,9 @@ function SidebarContent({
         <NavItem to="/songwars" icon={Music2} label="Song Wars" onClick={onNavClick} />
         <NavItem to="/friends" icon={Users} label="Friends" onClick={onNavClick} badge={pendingFriendRequests} />
         <NavItem to="/leaderboard" icon={Trophy} label="Leaderboard" onClick={onNavClick} />
+
         <div className="my-2 border-t border-zinc-800/50" />
+
         <NavItem to="/premium-chat" icon={Crown} label="NEESH.+ Chat" onClick={onNavClick} />
       </nav>
 
