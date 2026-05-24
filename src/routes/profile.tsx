@@ -28,6 +28,18 @@ const GRADIENT_PRESETS = [
   { name: 'Storm', primary: '#64748b', secondary: '#1e293b' },
 ]
 
+const PROFILE_EFFECTS = [
+  { value: 'none', label: 'None' },
+  { value: 'gradient', label: 'Animated Gradient' },
+  { value: 'particles', label: 'Particles' },
+  { value: 'snow', label: 'Snow' },
+  { value: 'vhs', label: 'VHS Static' },
+  { value: 'matrix', label: 'Matrix Rain' },
+  { value: 'neon', label: 'Neon Glow' },
+  { value: 'stars', label: 'Stars' },
+  { value: 'sparkles', label: 'Sparkles' },
+]
+
 interface Profile {
   id?: string
   netlifyId?: string
@@ -37,6 +49,7 @@ interface Profile {
   avatarUrl: string
   bannerUrl: string
   profileTheme: string
+  profileEffect: string
   profileColorPrimary: string
   profileColorSecondary: string
   interests: string[]
@@ -72,6 +85,7 @@ function ProfilePage() {
     avatarUrl: '',
     bannerUrl: '',
     profileTheme: 'default',
+    profileEffect: 'none',
     profileColorPrimary: '',
     profileColorSecondary: '',
     interests: [],
@@ -125,6 +139,7 @@ function ProfilePage() {
           avatarUrl: data.avatar_url ?? '',
           bannerUrl: data.banner_url ?? '',
           profileTheme: data.profile_theme ?? 'default',
+          profileEffect: data.profile_effect ?? 'none',
           profileColorPrimary: data.profile_color_primary ?? '',
           profileColorSecondary: data.profile_color_secondary ?? '',
           interests: data.interests ?? [],
@@ -273,6 +288,7 @@ function ProfilePage() {
       avatar_url: profile.avatarUrl,
       banner_url: profile.bannerUrl,
       profile_theme: profile.profileTheme,
+      profile_effect: isPremium ? profile.profileEffect : 'none',
       profile_color_primary: profile.profileColorPrimary,
       profile_color_secondary: profile.profileColorSecondary,
       interests: profile.interests,
@@ -312,6 +328,7 @@ function ProfilePage() {
       avatarUrl: data.avatar_url ?? p.avatarUrl,
       bannerUrl: data.banner_url ?? p.bannerUrl,
       profileTheme: data.profile_theme ?? p.profileTheme,
+      profileEffect: data.profile_effect ?? p.profileEffect,
       profileColorPrimary: data.profile_color_primary ?? p.profileColorPrimary,
       profileColorSecondary: data.profile_color_secondary ?? p.profileColorSecondary,
       interests: data.interests ?? p.interests,
@@ -339,8 +356,13 @@ function ProfilePage() {
     ? { background: `linear-gradient(135deg, ${profile.profileColorPrimary}, ${profile.profileColorSecondary})` }
     : undefined
 
+  const profileEffectClass =
+    isPremium && profile.profileEffect && profile.profileEffect !== 'none'
+      ? `profile-effect-${profile.profileEffect}`
+      : ''
+
   return (
-    <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto">
+    <div className={`flex flex-col h-full bg-zinc-950 overflow-y-auto ${profileEffectClass}`}>
       {isPremium && profile.bannerUrl ? (
         <div className="relative h-32 md:h-40 flex-shrink-0">
           <img src={profile.bannerUrl} alt="" className="w-full h-full object-cover" />
@@ -634,6 +656,37 @@ function ProfilePage() {
             <div className="flex items-center gap-2 mb-1">
               <Crown size={14} className="text-yellow-400" />
               <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">NEESH.+ Customization</span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-2">
+                Background Effect
+              </label>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 mb-4">
+                <div className={`h-20 rounded-lg border border-zinc-800 bg-zinc-950 mb-3 ${profile.profileEffect !== 'none' ? `profile-effect-${profile.profileEffect}` : ''}`} />
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {PROFILE_EFFECTS.map((effect) => (
+                    <button
+                      key={effect.value}
+                      type="button"
+                      onClick={() => setProfile((p) => ({ ...p, profileEffect: effect.value }))}
+                      className={`px-3 py-2 rounded-lg border text-xs transition-colors ${
+                        profile.profileEffect === effect.value
+                          ? 'border-white bg-white text-zinc-950'
+                          : 'border-zinc-700 bg-zinc-950 text-zinc-400 hover:text-white hover:border-zinc-500'
+                      }`}
+                    >
+                      {effect.label}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="text-[10px] text-zinc-500 mt-3">
+                  NEESH.+ background effects appear on your profile page. Make sure the matching CSS is in styles.css.
+                </p>
+              </div>
             </div>
 
             <div>
