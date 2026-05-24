@@ -197,39 +197,45 @@ function PremiumChatPage() {
     loadProfileAndAccess().catch(() => setIsPremium(false))
   }, [user])
 
-  const awardBadge = async (badgeId: string) => {
-    if (!user) return
+const awardBadge = async (badgeId: string) => {
+  if (!user) return
 
-    const { error } = await supabase
-      .from('user_badges')
-      .upsert({
-        user_id: user.id,
-        badge_id: badgeId,
-      })
+  const { data: existing } = await supabase
+    .from('user_badges')
+    .select('badge_id')
+    .eq('user_id', user.id)
+    .eq('badge_id', badgeId)
+    .maybeSingle()
 
-    if (error) {
-      console.error(`Badge award failed for ${badgeId}:`, error)
-    }
+  if (existing) return
+
+  const { data: badge } = await supabase
+    .from('badges')
+    .select('name, description, icon')
+    .eq('id', badgeId)
+    .maybeSingle()
+
+  const { error } = await supabase
+    .from('user_badges')
+    .insert({
+      user_id: user.id,
+      badge_id: badgeId,
+    })
+
+  if (error) {
+    console.error(`Badge award failed for ${badgeId}:`, error)
+    return
   }
 
-  const awardMessageBadges = async (messageCount: number) => {
-    if (messageCount >= 1) {
-      await awardBadge('first_message')
-    }
-
-    if (messageCount >= 100) {
-      await awardBadge('hundred_messages')
-    }
-
-    if (messageCount >= 1000) {
-      await awardBadge('thousand_messages')
-    }
-
-    if (messageCount >= 10000) {
-      await awardBadge('ten_thousand_messages')
-    }
-  }
-
+  await supabase.from('notifications').insert({
+    user_id: user.id,
+    actor_id: user.id,
+    type: 'badge_unlocked',
+    title: 'Badge unlocked',
+    body: `${badge?.icon ?? '🏅'} ${badge?.name ?? 'New badge'} unlocked!`,
+    link: '/profile',
+  })
+}
   const awardXp = async () => {
     if (!user) return
 
