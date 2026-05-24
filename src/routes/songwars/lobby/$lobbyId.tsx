@@ -336,7 +336,7 @@ function SongWarsLobbyPage() {
       .from('songwars_matches')
       .select('*')
       .eq('lobby_id', lobbyId)
-      .neq('status', 'finished')
+      .in('status', ['submitting', 'listening', 'voting'])
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
