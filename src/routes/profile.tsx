@@ -39,6 +39,23 @@ const PROFILE_EFFECTS = [
   { value: 'vhs', label: 'VHS', description: 'Retro scanline card' },
 ]
 
+const PROFILE_BACKGROUNDS = [
+  { value: 'none', label: 'None', description: 'Default black background' },
+  { value: 'midnight', label: 'Midnight', description: 'Dark purple Discord-style profile' },
+  { value: 'aurora', label: 'Aurora', description: 'Soft cyan and purple glow' },
+  { value: 'ember', label: 'Ember', description: 'Red/orange dark heat' },
+  { value: 'ocean', label: 'Ocean', description: 'Blue deep glow' },
+  { value: 'mono', label: 'Mono', description: 'Clean gray glass look' },
+]
+
+const NAME_EFFECTS = [
+  { value: 'none', label: 'None' },
+  { value: 'gradient', label: 'Gradient' },
+  { value: 'neon', label: 'Neon' },
+  { value: 'gold', label: 'Gold' },
+  { value: 'ice', label: 'Ice' },
+]
+
 interface Profile {
   id?: string
   netlifyId?: string
@@ -49,6 +66,8 @@ interface Profile {
   bannerUrl: string
   profileTheme: string
   profileEffect: string
+  profileBackground: string
+  nameEffect: string
   profileColorPrimary: string
   profileColorSecondary: string
   interests: string[]
@@ -147,6 +166,85 @@ function getPremiumCardStyle(
   }
 }
 
+function getProfileBackgroundStyle(background: string): React.CSSProperties {
+  if (background === 'midnight') {
+    return {
+      background:
+        'radial-gradient(circle at 25% 0%, rgba(124,58,237,.28), transparent 32%), radial-gradient(circle at 80% 12%, rgba(236,72,153,.16), transparent 28%), #09090b',
+    }
+  }
+
+  if (background === 'aurora') {
+    return {
+      background:
+        'radial-gradient(circle at 15% 0%, rgba(168,85,247,.32), transparent 34%), radial-gradient(circle at 85% 5%, rgba(6,182,212,.26), transparent 32%), linear-gradient(180deg, #09090b, #111827)',
+    }
+  }
+
+  if (background === 'ember') {
+    return {
+      background:
+        'radial-gradient(circle at 20% 0%, rgba(249,115,22,.25), transparent 34%), radial-gradient(circle at 80% 10%, rgba(239,68,68,.22), transparent 30%), #09090b',
+    }
+  }
+
+  if (background === 'ocean') {
+    return {
+      background:
+        'radial-gradient(circle at 30% 0%, rgba(14,165,233,.30), transparent 35%), radial-gradient(circle at 90% 20%, rgba(59,130,246,.18), transparent 30%), #09090b',
+    }
+  }
+
+  if (background === 'mono') {
+    return {
+      background:
+        'radial-gradient(circle at top, rgba(255,255,255,.10), transparent 30%), linear-gradient(180deg, #18181b, #09090b)',
+    }
+  }
+
+  return { background: '#09090b' }
+}
+
+function getNameEffectStyle(effect: string): React.CSSProperties {
+  if (effect === 'gradient') {
+    return {
+      background: 'linear-gradient(90deg, #a855f7, #06b6d4, #ec4899)',
+      WebkitBackgroundClip: 'text',
+      backgroundClip: 'text',
+      color: 'transparent',
+      fontWeight: 800,
+    }
+  }
+
+  if (effect === 'neon') {
+    return {
+      color: '#f5d0fe',
+      textShadow: '0 0 8px rgba(236,72,153,.9), 0 0 18px rgba(168,85,247,.65)',
+      fontWeight: 800,
+    }
+  }
+
+  if (effect === 'gold') {
+    return {
+      background: 'linear-gradient(90deg, #fde68a, #f59e0b, #fff7ed)',
+      WebkitBackgroundClip: 'text',
+      backgroundClip: 'text',
+      color: 'transparent',
+      fontWeight: 800,
+    }
+  }
+
+  if (effect === 'ice') {
+    return {
+      color: '#bae6fd',
+      textShadow: '0 0 8px rgba(14,165,233,.85), 0 0 18px rgba(125,211,252,.45)',
+      fontWeight: 800,
+    }
+  }
+
+  return {}
+}
+
 function ProfilePage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
@@ -159,6 +257,8 @@ function ProfilePage() {
     bannerUrl: '',
     profileTheme: 'default',
     profileEffect: 'none',
+    profileBackground: 'none',
+    nameEffect: 'none',
     profileColorPrimary: '',
     profileColorSecondary: '',
     interests: [],
@@ -213,6 +313,8 @@ function ProfilePage() {
           bannerUrl: data.banner_url ?? '',
           profileTheme: data.profile_theme ?? 'default',
           profileEffect: data.profile_effect ?? 'none',
+          profileBackground: data.profile_background ?? 'none',
+          nameEffect: data.name_effect ?? 'none',
           profileColorPrimary: data.profile_color_primary ?? '',
           profileColorSecondary: data.profile_color_secondary ?? '',
           interests: data.interests ?? [],
@@ -366,6 +468,8 @@ function ProfilePage() {
       banner_url: profile.bannerUrl,
       profile_theme: profile.profileTheme,
       profile_effect: hasPremiumAccess ? profile.profileEffect : 'none',
+      profile_background: hasPremiumAccess ? profile.profileBackground : 'none',
+      name_effect: hasPremiumAccess ? profile.nameEffect : 'none',
       profile_color_primary: profile.profileColorPrimary,
       profile_color_secondary: profile.profileColorSecondary,
       interests: profile.interests,
@@ -406,6 +510,8 @@ function ProfilePage() {
       bannerUrl: data.banner_url ?? p.bannerUrl,
       profileTheme: data.profile_theme ?? p.profileTheme,
       profileEffect: data.profile_effect ?? p.profileEffect,
+      profileBackground: data.profile_background ?? p.profileBackground,
+      nameEffect: data.name_effect ?? p.nameEffect,
       profileColorPrimary: data.profile_color_primary ?? p.profileColorPrimary,
       profileColorSecondary: data.profile_color_secondary ?? p.profileColorSecondary,
       interests: data.interests ?? p.interests,
@@ -439,9 +545,11 @@ function ProfilePage() {
     profile.profileColorPrimary,
     profile.profileColorSecondary
   )
+  const profileBackgroundStyle = getProfileBackgroundStyle(isPremium ? profile.profileBackground : 'none')
+  const nameEffectStyle = getNameEffectStyle(isPremium ? profile.nameEffect : 'none')
 
   return (
-    <div className="flex flex-col min-h-screen bg-zinc-950 overflow-y-auto pb-24">
+    <div className="flex flex-col min-h-screen overflow-y-auto pb-24" style={profileBackgroundStyle}>
       {isPremium && profile.bannerUrl ? (
         <div className="relative h-32 md:h-40 flex-shrink-0">
           <img src={profile.bannerUrl} alt="" className="w-full h-full object-cover" />
@@ -518,7 +626,7 @@ function ProfilePage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white flex items-center gap-1.5">
-                  {profile.displayName || user.email}
+                  <span style={nameEffectStyle}>{profile.displayName || user.email}</span>
                   <VerifiedBadge
                     username={profile.username}
                     isPremium={isPremium}
@@ -737,7 +845,71 @@ function ProfilePage() {
 
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-2">
-                Premium Profile Style
+                Discord-Style Profile Background
+              </label>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 mb-4">
+                <div
+                  className="h-24 rounded-xl border border-zinc-800 mb-3"
+                  style={getProfileBackgroundStyle(profile.profileBackground)}
+                />
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {PROFILE_BACKGROUNDS.map((background) => (
+                    <button
+                      key={background.value}
+                      type="button"
+                      onClick={() => setProfile((p) => ({ ...p, profileBackground: background.value }))}
+                      className={`rounded-lg border p-2 text-left transition-colors ${
+                        profile.profileBackground === background.value
+                          ? 'border-white bg-white text-zinc-950'
+                          : 'border-zinc-700 bg-zinc-950 text-zinc-400 hover:text-white hover:border-zinc-500'
+                      }`}
+                    >
+                      <span className="block text-xs font-semibold">{background.label}</span>
+                      <span className={`block text-[10px] mt-0.5 ${profile.profileBackground === background.value ? 'text-zinc-600' : 'text-zinc-600'}`}>
+                        {background.description}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-2">
+                Name Effect
+              </label>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 mb-4">
+                <div className="h-16 rounded-xl border border-zinc-800 bg-zinc-950 flex items-center justify-center mb-3">
+                  <p className="text-lg font-bold" style={getNameEffectStyle(profile.nameEffect)}>
+                    {profile.displayName || 'Your Name'}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {NAME_EFFECTS.map((effect) => (
+                    <button
+                      key={effect.value}
+                      type="button"
+                      onClick={() => setProfile((p) => ({ ...p, nameEffect: effect.value }))}
+                      className={`rounded-lg border p-2 text-left transition-colors ${
+                        profile.nameEffect === effect.value
+                          ? 'border-white bg-white text-zinc-950'
+                          : 'border-zinc-700 bg-zinc-950 text-zinc-400 hover:text-white hover:border-zinc-500'
+                      }`}
+                    >
+                      <span className="block text-xs font-semibold">{effect.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-2">
+                Premium Profile Card Style
               </label>
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3 mb-4">
