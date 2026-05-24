@@ -11,6 +11,24 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+      meta: [
+  { charSet: 'utf-8' },
+  { name: 'viewport', content: 'width=device-width, initial-scale=1' },
+
+  {
+    name: 'google-site-verification',
+    content: 'HABD8juTPxzKdsHVqnIvpnZjnS-X846PqFO1bxrw6DY',
+  },
+
+  {
+    title: 'neesh. | Meet People Who Share Your Interests',
+  },
+  {
+    name: 'description',
+    content:
+      'Join interest-based communities, chat with like-minded people, make friends, and discover new conversations on neesh.',
+  },
+]
 
       {
         title: 'neesh. | Meet People Who Share Your Interests',
