@@ -205,7 +205,14 @@ function getProfileBackgroundStyle(
   if (background === 'mono') {
     return {
       background:
-        `radial-gradient(circle at top, ${p}22, transparent 32%), radial-gradient(circle at bottom, ${s}18, transparent 34%), linear-gradient(180deg, #18181b, #09090b)`,function getNameEffectStyle(
+        `radial-gradient(circle at top, ${p}22, transparent 32%), radial-gradient(circle at bottom, ${s}18, transparent 34%), linear-gradient(180deg, #18181b, #09090b)`,
+    }
+  }
+
+  return { background: '#09090b' }
+}
+
+function getNameEffectStyle(
   effect: string,
   primary?: string,
   secondary?: string
@@ -246,13 +253,6 @@ function getProfileBackgroundStyle(
       color: '#e0f2fe',
       textShadow: `0 0 8px ${s}, 0 0 18px ${p}`,
       fontWeight: 800,
-    }
-  }
-
-  return {}
-}
-
-function ProfilePage00,
     }
   }
 
@@ -689,7 +689,7 @@ function ProfilePage() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white flex items-center gap-1.5">
-                {profile.displayName || user.email}
+                <span style={nameEffectStyle}>{profile.displayName || user.email}</span>
                 <VerifiedBadge
                   username={profile.username}
                   isPremium={isPremium}
