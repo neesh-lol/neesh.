@@ -32,6 +32,9 @@ type RankedMatchRow = {
   winner_id: string | null
   created_at: string
   updated_at: string
+  last_activity_at: string | null
+  ended_reason: string | null
+  ended_at: string | null
   submit_deadline_at: string | null
   listening_started_at: string | null
   listening_player: string | null
@@ -106,6 +109,13 @@ function clipLength(start: number, end: number) {
   return Math.max(0, end - start)
 }
 
+const INACTIVITY_LIMIT_MS = 10 * 60 * 1000
+const ACTIVE_MATCH_STATUSES = ['submitting', 'listening', 'voting']
+
+function isActiveMatchStatus(status?: string | null) {
+  return !!status && ACTIVE_MATCH_STATUSES.includes(status)
+}
+
 function expectedScore(playerElo: number, opponentElo: number) {
   return 1 / (1 + Math.pow(10, (opponentElo - playerElo) / 400))
 }
@@ -153,6 +163,7 @@ function RankedSongWarsPage() {
   const isVoter = !!user && !!match && match.voter_id === user.id
   const isBattler = isPlayerA || isPlayerB
   const isInMatch = isBattler || isVoter
+  const isHost = isPlayerA
 
   const playerAProfile = match ? profiles[match.player_a_id] : undefined
   const playerBProfile = match ? profiles[match.player_b_id] : undefined
@@ -190,6 +201,10 @@ function RankedSongWarsPage() {
 
   const listeningTimeLeft = match?.listening_ends_at
     ? Math.max(0, Math.ceil((new Date(match.listening_ends_at).getTime() - nowTick) / 1000))
+    : 0
+
+  const inactivityTimeLeft = match?.last_activity_at && isActiveMatchStatus(match.status)
+    ? Math.max(0, Math.ceil((INACTIVITY_LIMIT_MS - (nowTick - new Date(match.last_activity_at).getTime())) / 1000))
     : 0
 
   const listeningSubmission =
@@ -381,6 +396,128 @@ function RankedSongWarsPage() {
     return () => clearInterval(interval)
   }, [match, playerASubmission, playerBSubmission])
 
+
+  const touchRankedActivity = async (id = match?.id) => {
+    if (!id) return
+
+    await supabase
+      .from('songwars_ranked_matches')
+      .update({
+        last_activity_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .in('status', ACTIVE_MATCH_STATUSES)
+  }
+
+  const cancelRankedMatch = async () => {
+    if (!user || !match || !isHost) return
+
+    const confirmed = window.confirm('Cancel this ranked match? This will end the match for everyone.')
+
+    if (!confirmed) return
+
+    setActionLoading('cancel')
+    setMessage('')
+
+    const now = new Date().toISOString()
+
+    const { error } = await supabase
+      .from('songwars_ranked_matches')
+      .update({
+        status: 'cancelled',
+        ended_reason: 'host_cancelled',
+        ended_at: now,
+        updated_at: now,
+      })
+      .eq('id', match.id)
+      .eq('player_a_id', user.id)
+      .in('status', ACTIVE_MATCH_STATUSES)
+
+    if (error) {
+      console.error('Ranked cancel error:', error)
+      setMessage(error.message)
+      setActionLoading('')
+      return
+    }
+
+    await supabase
+      .from('songwars_ranked_queue')
+      .delete()
+      .eq('match_id', match.id)
+
+    setMessage('Ranked match cancelled by the host.')
+    setActionLoading('')
+    await loadMatch(false)
+
+    setTimeout(() => {
+      navigate({ to: '/songwars' })
+    }, 1500)
+  }
+
+  const endRankedMatchForInactivity = async () => {
+    if (!match) return
+
+    const now = new Date().toISOString()
+
+    const { error } = await supabase
+      .from('songwars_ranked_matches')
+      .update({
+        status: 'inactive_ended',
+        ended_reason: 'inactivity',
+        ended_at: now,
+        updated_at: now,
+      })
+      .eq('id', match.id)
+      .in('status', ACTIVE_MATCH_STATUSES)
+
+    if (error) {
+      console.error('Ranked inactivity end error:', error)
+      return
+    }
+
+    await supabase
+      .from('songwars_ranked_queue')
+      .delete()
+      .eq('match_id', match.id)
+
+    setMessage('This ranked match ended due to 10 minutes of inactivity.')
+    await loadMatch(false)
+
+    setTimeout(() => {
+      navigate({ to: '/songwars' })
+    }, 2000)
+  }
+
+
+  useEffect(() => {
+    if (!user || !match || !isActiveMatchStatus(match.status)) return
+
+    const checkInactivity = async () => {
+      const { data, error } = await supabase
+        .from('songwars_ranked_matches')
+        .select('id,status,last_activity_at')
+        .eq('id', match.id)
+        .maybeSingle()
+
+      if (error || !data || !isActiveMatchStatus(data.status)) return
+
+      const lastActivity = data.last_activity_at
+        ? new Date(data.last_activity_at).getTime()
+        : Date.now()
+
+      if (Date.now() - lastActivity >= INACTIVITY_LIMIT_MS) {
+        await endRankedMatchForInactivity()
+      }
+    }
+
+    checkInactivity()
+
+    const interval = setInterval(checkInactivity, 30000)
+
+    return () => clearInterval(interval)
+  }, [user, match?.id, match?.status, match?.last_activity_at])
+
   const uploadSongFile = async () => {
     if (!songFile || !user) return null
 
@@ -418,6 +555,7 @@ function RankedSongWarsPage() {
         listening_started_at: now.toISOString(),
         listening_player: 'A',
         listening_ends_at: endsAt,
+        last_activity_at: now.toISOString(),
         updated_at: now.toISOString(),
       })
       .eq('id', match.id)
@@ -439,6 +577,7 @@ function RankedSongWarsPage() {
           listening_player: 'B',
           listening_started_at: now.toISOString(),
           listening_ends_at: endsAt,
+          last_activity_at: now.toISOString(),
           updated_at: now.toISOString(),
         })
         .eq('id', match.id)
@@ -453,6 +592,7 @@ function RankedSongWarsPage() {
         status: 'voting',
         listening_player: null,
         listening_ends_at: null,
+        last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', match.id)
@@ -534,6 +674,8 @@ function RankedSongWarsPage() {
         return
       }
 
+      await touchRankedActivity(match.id)
+
       setSongTitle('')
       setSongUrl('')
       setSongFile(null)
@@ -564,6 +706,7 @@ function RankedSongWarsPage() {
               listening_started_at: now.toISOString(),
               listening_player: 'A',
               listening_ends_at: endsAt,
+              last_activity_at: now.toISOString(),
               updated_at: now.toISOString(),
             })
             .eq('id', match.id)
@@ -671,6 +814,8 @@ function RankedSongWarsPage() {
       .update({
         status: 'finished',
         winner_id: winnerId,
+        ended_reason: 'completed',
+        ended_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', match.id)
@@ -711,6 +856,8 @@ function RankedSongWarsPage() {
       return
     }
 
+    await touchRankedActivity(match.id)
+
     const nextARounds = match.player_a_rounds + (votedForId === match.player_a_id ? 1 : 0)
     const nextBRounds = match.player_b_rounds + (votedForId === match.player_b_id ? 1 : 0)
 
@@ -746,6 +893,7 @@ function RankedSongWarsPage() {
         listening_started_at: null,
         listening_player: null,
         listening_ends_at: null,
+        last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', match.id)
@@ -844,13 +992,25 @@ function RankedSongWarsPage() {
           </div>
         </div>
 
-        <button
-          onClick={() => loadMatch(true)}
-          className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
-        >
-          <RefreshCcw size={14} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {isHost && isActiveMatchStatus(match.status) && (
+            <button
+              onClick={cancelRankedMatch}
+              disabled={!!actionLoading}
+              className="px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-300 hover:text-white hover:bg-red-500/20 transition-colors disabled:opacity-50"
+            >
+              Cancel Match
+            </button>
+          )}
+
+          <button
+            onClick={() => loadMatch(true)}
+            className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
+          >
+            <RefreshCcw size={14} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="max-w-6xl w-full mx-auto px-5 py-6 space-y-6">
@@ -870,6 +1030,9 @@ function RankedSongWarsPage() {
                 {match.status === 'listening' && `Listening ends in ${formatTime(listeningTimeLeft)}`}
                 {match.status === 'voting' && 'The voter chooses the round winner.'}
                 {match.status === 'finished' && 'Match complete.'}
+                {match.status === 'cancelled' && 'This ranked match was cancelled by the host.'}
+                {match.status === 'inactive_ended' && 'This ranked match ended due to 10 minutes of inactivity.'}
+                {isActiveMatchStatus(match.status) && ` Inactivity timer: ${formatTime(inactivityTimeLeft)}`}
               </p>
             </div>
 
@@ -1172,6 +1335,27 @@ function RankedSongWarsPage() {
             </button>
           </div>
         )}
+        {(match.status === 'cancelled' || match.status === 'inactive_ended') && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-5 text-center">
+            <Music2 size={34} className="text-red-300 mx-auto mb-3" />
+            <h2 className="text-xl font-bold text-white mb-1">
+              {match.status === 'cancelled' ? 'Ranked Match Cancelled' : 'Ranked Match Ended'}
+            </h2>
+            <p className="text-sm text-zinc-400 mb-5">
+              {match.status === 'cancelled'
+                ? 'The host cancelled this ranked match.'
+                : 'This ranked match ended after 10 minutes of inactivity.'}
+            </p>
+
+            <button
+              onClick={() => navigate({ to: '/songwars' })}
+              className="px-4 py-2.5 bg-white text-zinc-950 rounded-xl text-sm font-bold hover:bg-zinc-200 transition-colors"
+            >
+              Back to Song Wars
+            </button>
+          </div>
+        )}
+
       </div>
     </div>
   )
