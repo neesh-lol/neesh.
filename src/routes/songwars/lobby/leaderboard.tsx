@@ -110,7 +110,7 @@ function SongWarsLeaderboardPage() {
       return
     }
 
-    const cleanStats = statsRows ?? []
+    const cleanStats = (statsRows ?? []).filter((row) => (row.elo ?? 0) >= 2500)
     const userIds = cleanStats.map((row) => row.user_id)
 
     if (userIds.length === 0) {
@@ -186,7 +186,7 @@ function SongWarsLeaderboardPage() {
               Song Wars Ranked Leaderboard
             </h1>
             <p className="text-xs text-zinc-500">
-              Top ranked players by ELO
+              Legend leaderboard · 2500+ ELO only
             </p>
           </div>
         </div>
@@ -253,7 +253,7 @@ function SongWarsLeaderboardPage() {
                 Rankings
               </h2>
               <p className="text-xs text-zinc-500">
-                Only Legend-qualified players are shown
+                Only 2500+ ELO players are shown
               </p>
             </div>
 
