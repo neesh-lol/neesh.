@@ -29,6 +29,9 @@ type QuickMatchRow = {
   winner_id: string | null
   created_at: string
   updated_at: string
+  last_activity_at: string | null
+  ended_reason: string | null
+  ended_at: string | null
   submit_deadline_at: string | null
   listening_started_at: string | null
   listening_player: string | null
@@ -65,6 +68,8 @@ type SongVoteRow = {
   voted_for_id: string
   created_at: string
 }
+
+const QUICK_INACTIVITY_LIMIT_MS = 10 * 60 * 1000
 
 type StatsRow = {
   user_id: string
@@ -141,6 +146,7 @@ function QuickSongWarsPage() {
   const isVoter = !!user && !!match && match.voter_id === user.id
   const isBattler = isPlayerA || isPlayerB
   const isInMatch = isBattler || isVoter
+  const isHost = isPlayerA
 
   const playerAProfile = match ? profiles[match.player_a_id] : undefined
   const playerBProfile = match ? profiles[match.player_b_id] : undefined
@@ -350,6 +356,116 @@ function QuickSongWarsPage() {
     return () => clearInterval(interval)
   }, [match, playerASubmission, playerBSubmission])
 
+
+  const updateMatchActivity = async () => {
+    if (!match) return
+
+    await supabase
+      .from('songwars_quick_matches')
+      .update({
+        last_activity_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', match.id)
+      .in('status', ['submitting', 'listening', 'voting'])
+  }
+
+  const endMatchForInactivity = async () => {
+    if (!match) return
+
+    const now = new Date().toISOString()
+
+    await supabase
+      .from('songwars_quick_matches')
+      .update({
+        status: 'inactive_ended',
+        ended_reason: 'inactivity',
+        ended_at: now,
+        updated_at: now,
+      })
+      .eq('id', match.id)
+      .in('status', ['submitting', 'listening', 'voting'])
+
+    await supabase
+      .from('songwars_queue')
+      .delete()
+      .eq('match_id', match.id)
+
+    setMessage('This match ended due to 10 minutes of inactivity.')
+    await loadMatch(false)
+  }
+
+  const cancelMatch = async () => {
+    if (!user || !match || !isHost) return
+
+    const confirmed = window.confirm('Cancel this match? This will end the match for everyone.')
+    if (!confirmed) return
+
+    setActionLoading('cancel')
+    setMessage('')
+
+    const now = new Date().toISOString()
+
+    const { error } = await supabase
+      .from('songwars_quick_matches')
+      .update({
+        status: 'cancelled',
+        ended_reason: 'host_cancelled',
+        ended_at: now,
+        updated_at: now,
+      })
+      .eq('id', match.id)
+      .eq('player_a_id', user.id)
+      .in('status', ['submitting', 'listening', 'voting'])
+
+    if (error) {
+      console.error('Quick match cancel error:', error)
+      setMessage(error.message)
+      setActionLoading('')
+      return
+    }
+
+    await supabase
+      .from('songwars_queue')
+      .delete()
+      .eq('match_id', match.id)
+
+    setActionLoading('')
+    navigate({ to: '/songwars' })
+  }
+
+
+  useEffect(() => {
+    if (!match || !isInMatch) return
+    if (!['submitting', 'listening', 'voting'].includes(match.status)) return
+
+    const checkInactivity = async () => {
+      const { data, error } = await supabase
+        .from('songwars_quick_matches')
+        .select('id,status,last_activity_at,updated_at')
+        .eq('id', match.id)
+        .maybeSingle()
+
+      if (error || !data) return
+      if (!['submitting', 'listening', 'voting'].includes(data.status)) return
+
+      const lastActivitySource = data.last_activity_at || data.updated_at
+      const lastActivity = lastActivitySource
+        ? new Date(lastActivitySource).getTime()
+        : Date.now()
+
+      if (Date.now() - lastActivity >= QUICK_INACTIVITY_LIMIT_MS) {
+        await endMatchForInactivity()
+      }
+    }
+
+    checkInactivity()
+    const interval = setInterval(checkInactivity, 30000)
+
+    return () => clearInterval(interval)
+  }, [match?.id, match?.status, match?.last_activity_at, isInMatch])
+
   const uploadSongFile = async () => {
     if (!songFile || !user) return null
 
@@ -387,6 +503,7 @@ function QuickSongWarsPage() {
         listening_started_at: now.toISOString(),
         listening_player: 'A',
         listening_ends_at: endsAt,
+        last_activity_at: now.toISOString(),
         updated_at: now.toISOString(),
       })
       .eq('id', match.id)
@@ -408,6 +525,7 @@ function QuickSongWarsPage() {
           listening_player: 'B',
           listening_started_at: now.toISOString(),
           listening_ends_at: endsAt,
+          last_activity_at: now.toISOString(),
           updated_at: now.toISOString(),
         })
         .eq('id', match.id)
@@ -509,6 +627,8 @@ function QuickSongWarsPage() {
       setStartTimestamp('0')
       setEndTimestamp('30')
 
+      await updateMatchActivity()
+
       const { data: allSubs } = await supabase
         .from('songwars_submissions')
         .select('*')
@@ -533,6 +653,7 @@ function QuickSongWarsPage() {
               listening_started_at: now.toISOString(),
               listening_player: 'A',
               listening_ends_at: endsAt,
+              last_activity_at: now.toISOString(),
               updated_at: now.toISOString(),
             })
             .eq('id', match.id)
@@ -641,6 +762,8 @@ function QuickSongWarsPage() {
       .update({
         status: 'finished',
         winner_id: winnerId,
+        ended_reason: 'completed',
+        ended_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', match.id)
@@ -681,6 +804,7 @@ function QuickSongWarsPage() {
       return
     }
 
+    await updateMatchActivity()
     await finishQuickMatch(votedForId)
     setActionLoading('')
   }
@@ -768,13 +892,26 @@ function QuickSongWarsPage() {
           </div>
         </div>
 
-        <button
-          onClick={() => loadMatch(true)}
-          className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
-        >
-          <RefreshCcw size={14} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {isHost && ['submitting', 'listening', 'voting'].includes(match.status) && (
+            <button
+              onClick={cancelMatch}
+              disabled={actionLoading === 'cancel'}
+              className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-300 hover:text-white hover:bg-red-500/20 transition-colors disabled:opacity-50"
+            >
+              <X size={14} />
+              Cancel Match
+            </button>
+          )}
+
+          <button
+            onClick={() => loadMatch(true)}
+            className="flex items-center gap-2 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
+          >
+            <RefreshCcw size={14} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div className="max-w-6xl w-full mx-auto px-5 py-6 space-y-6">
@@ -794,6 +931,8 @@ function QuickSongWarsPage() {
                 {match.status === 'listening' && `Listening ends in ${formatTime(listeningTimeLeft)}`}
                 {match.status === 'voting' && 'The voter chooses the winner.'}
                 {match.status === 'finished' && 'Match complete.'}
+                {match.status === 'cancelled' && 'This match was cancelled by the host.'}
+                {match.status === 'inactive_ended' && 'This match ended after 10 minutes of inactivity.'}
               </p>
             </div>
 
@@ -1055,6 +1194,28 @@ function QuickSongWarsPage() {
             </div>
           </div>
         </div>
+
+
+        {(match.status === 'cancelled' || match.status === 'inactive_ended') && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-5 text-center">
+            <X size={34} className="text-red-400 mx-auto mb-3" />
+            <h2 className="text-xl font-bold text-white mb-1">
+              {match.status === 'cancelled' ? 'Match Cancelled' : 'Match Ended'}
+            </h2>
+            <p className="text-sm text-zinc-400 mb-5">
+              {match.status === 'cancelled'
+                ? 'The host cancelled this quick match.'
+                : 'This quick match ended after 10 minutes of inactivity.'}
+            </p>
+
+            <button
+              onClick={() => navigate({ to: '/songwars' })}
+              className="px-4 py-2.5 bg-white text-zinc-950 rounded-xl text-sm font-bold hover:bg-zinc-200 transition-colors"
+            >
+              Back to Song Wars
+            </button>
+          </div>
+        )}
 
         {match.status === 'finished' && (
           <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-5 text-center">
