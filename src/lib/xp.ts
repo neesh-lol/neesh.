@@ -22,6 +22,58 @@ function dailyXp(streak: number): number {
   return Math.min(streak * 100, 400)
 }
 
+async function awardBadge(userId: string, badgeId: string) {
+  try {
+    await db.execute(sql`
+      insert into public.user_badges (user_id, badge_id)
+      values (${userId}, ${badgeId})
+      on conflict do nothing
+    `)
+  } catch (error) {
+    console.error(`Failed to award badge ${badgeId}:`, error)
+  }
+}
+
+async function awardMessageBadges(userId: string, messageCount: number) {
+  if (messageCount >= 1) {
+    await awardBadge(userId, 'first_message')
+  }
+
+  if (messageCount >= 100) {
+    await awardBadge(userId, 'hundred_messages')
+  }
+
+  if (messageCount >= 1000) {
+    await awardBadge(userId, 'thousand_messages')
+  }
+
+  if (messageCount >= 10000) {
+    await awardBadge(userId, 'ten_thousand_messages')
+  }
+}
+
+async function awardStreakBadges(userId: string, streak: number) {
+  if (streak >= 7) {
+    await awardBadge(userId, 'seven_day_streak')
+  }
+
+  if (streak >= 30) {
+    await awardBadge(userId, 'thirty_day_streak')
+  }
+
+  if (streak >= 50) {
+    await awardBadge(userId, 'fifty_day_streak')
+  }
+
+  if (streak >= 100) {
+    await awardBadge(userId, 'hundred_day_streak')
+  }
+
+  if (streak >= 365) {
+    await awardBadge(userId, 'year_streak')
+  }
+}
+
 export async function processMessageXp(
   netlifyId: string,
   baseXp: number,
@@ -37,6 +89,7 @@ export async function processMessageXp(
   const today = getToday()
   const yesterday = getYesterday()
   const dayBefore = getDayBeforeYesterday()
+
   let dailyBonus = 0
   let newStreak = profile.currentStreak
   let newLongest = profile.longestStreak
@@ -44,14 +97,16 @@ export async function processMessageXp(
   if (profile.lastActiveDate !== today) {
     if (profile.lastActiveDate === yesterday) {
       newStreak = profile.currentStreak + 1
-    } else if (
-      profile.isPremium &&
-      profile.lastActiveDate === dayBefore
-    ) {
+    } else if (profile.isPremium && profile.lastActiveDate === dayBefore) {
       const currentMonth = new Date().toISOString().slice(0, 7)
-      const freezeUsed = profile.streakFreezeResetMonth === currentMonth ? profile.streakFreezeUsed : 0
+      const freezeUsed =
+        profile.streakFreezeResetMonth === currentMonth
+          ? profile.streakFreezeUsed
+          : 0
+
       if (freezeUsed < 3) {
         newStreak = profile.currentStreak + 1
+
         await db
           .update(userProfiles)
           .set({
@@ -65,6 +120,7 @@ export async function processMessageXp(
     } else {
       newStreak = 1
     }
+
     dailyBonus = dailyXp(newStreak)
     newLongest = Math.max(newLongest, newStreak)
   }
@@ -85,6 +141,9 @@ export async function processMessageXp(
     })
     .where(eq(userProfiles.netlifyId, netlifyId))
 
+  await awardMessageBadges(netlifyId, newMessageCount)
+  await awardStreakBadges(netlifyId, newStreak)
+
   await updateChallengeProgress(netlifyId, 'send_first_message', newMessageCount)
   await updateChallengeProgress(netlifyId, 'send_100_messages', newMessageCount)
   await updateChallengeProgress(netlifyId, 'send_1000_messages', newMessageCount)
@@ -94,7 +153,11 @@ export async function processMessageXp(
   await updateChallengeProgress(netlifyId, 'streak_100', newStreak)
   await updateChallengeProgress(netlifyId, 'streak_365', newStreak)
 
-  return { totalXp: newTotalXp, currentStreak: newStreak, dailyBonus }
+  return {
+    totalXp: newTotalXp,
+    currentStreak: newStreak,
+    dailyBonus,
+  }
 }
 
 export interface ChallengeDefinition {
@@ -107,22 +170,117 @@ export interface ChallengeDefinition {
 }
 
 export const CHALLENGES: ChallengeDefinition[] = [
-  { key: 'send_first_message', name: 'First Words', description: 'Send your first message', xpReward: 50, target: 1, category: 'messaging' },
-  { key: 'send_100_messages', name: 'Chatterbox', description: 'Send 100 messages', xpReward: 500, target: 100, category: 'messaging' },
-  { key: 'send_1000_messages', name: 'Motormouth', description: 'Send 1,000 messages', xpReward: 2000, target: 1000, category: 'messaging' },
-  { key: 'streak_7', name: 'On Fire', description: 'Reach a 7-day streak', xpReward: 300, target: 7, category: 'streak' },
-  { key: 'streak_30', name: 'Unstoppable', description: 'Reach a 30-day streak', xpReward: 1500, target: 30, category: 'streak' },
-  { key: 'streak_50', name: 'Half Century', description: 'Reach a 50-day streak', xpReward: 3000, target: 50, category: 'streak' },
-  { key: 'streak_100', name: 'Centurion', description: 'Reach a 100-day streak', xpReward: 5000, target: 100, category: 'streak' },
-  { key: 'streak_365', name: 'Legendary', description: 'Reach a 1-year streak', xpReward: 15000, target: 365, category: 'streak' },
-  { key: 'customize_profile', name: 'Looking Good', description: 'Customize your profile', xpReward: 50, target: 1, category: 'profile' },
-  { key: 'add_first_friend', name: 'Social Butterfly', description: 'Add your first friend', xpReward: 100, target: 1, category: 'social' },
-  { key: 'add_10_friends', name: 'Networking', description: 'Add 10 friends', xpReward: 500, target: 10, category: 'social' },
-  { key: 'add_50_friends', name: 'Popular', description: 'Add 50 friends', xpReward: 2000, target: 50, category: 'social' },
-  { key: 'add_100_friends', name: 'Celebrity', description: 'Add 100 friends', xpReward: 5000, target: 100, category: 'social' },
+  {
+    key: 'send_first_message',
+    name: 'First Words',
+    description: 'Send your first message',
+    xpReward: 50,
+    target: 1,
+    category: 'messaging',
+  },
+  {
+    key: 'send_100_messages',
+    name: 'Chatterbox',
+    description: 'Send 100 messages',
+    xpReward: 500,
+    target: 100,
+    category: 'messaging',
+  },
+  {
+    key: 'send_1000_messages',
+    name: 'Motormouth',
+    description: 'Send 1,000 messages',
+    xpReward: 2000,
+    target: 1000,
+    category: 'messaging',
+  },
+  {
+    key: 'streak_7',
+    name: 'On Fire',
+    description: 'Reach a 7-day streak',
+    xpReward: 300,
+    target: 7,
+    category: 'streak',
+  },
+  {
+    key: 'streak_30',
+    name: 'Unstoppable',
+    description: 'Reach a 30-day streak',
+    xpReward: 1500,
+    target: 30,
+    category: 'streak',
+  },
+  {
+    key: 'streak_50',
+    name: 'Half Century',
+    description: 'Reach a 50-day streak',
+    xpReward: 3000,
+    target: 50,
+    category: 'streak',
+  },
+  {
+    key: 'streak_100',
+    name: 'Centurion',
+    description: 'Reach a 100-day streak',
+    xpReward: 5000,
+    target: 100,
+    category: 'streak',
+  },
+  {
+    key: 'streak_365',
+    name: 'Legendary',
+    description: 'Reach a 1-year streak',
+    xpReward: 15000,
+    target: 365,
+    category: 'streak',
+  },
+  {
+    key: 'customize_profile',
+    name: 'Looking Good',
+    description: 'Customize your profile',
+    xpReward: 50,
+    target: 1,
+    category: 'profile',
+  },
+  {
+    key: 'add_first_friend',
+    name: 'Social Butterfly',
+    description: 'Add your first friend',
+    xpReward: 100,
+    target: 1,
+    category: 'social',
+  },
+  {
+    key: 'add_10_friends',
+    name: 'Networking',
+    description: 'Add 10 friends',
+    xpReward: 500,
+    target: 10,
+    category: 'social',
+  },
+  {
+    key: 'add_50_friends',
+    name: 'Popular',
+    description: 'Add 50 friends',
+    xpReward: 2000,
+    target: 50,
+    category: 'social',
+  },
+  {
+    key: 'add_100_friends',
+    name: 'Celebrity',
+    description: 'Add 100 friends',
+    xpReward: 5000,
+    target: 100,
+    category: 'social',
+  },
 ]
 
-async function updateChallengeProgress(netlifyId: string, challengeKey: string, progress: number) {
+async function updateChallengeProgress(
+  netlifyId: string,
+  challengeKey: string,
+  progress: number,
+) {
   const challenge = CHALLENGES.find((c) => c.key === challengeKey)
   if (!challenge) return
 
@@ -130,29 +288,37 @@ async function updateChallengeProgress(netlifyId: string, challengeKey: string, 
     .select()
     .from(userChallenges)
     .where(
-      sql`${userChallenges.netlifyId} = ${netlifyId} AND ${userChallenges.challengeKey} = ${challengeKey}`
+      sql`${userChallenges.netlifyId} = ${netlifyId} AND ${userChallenges.challengeKey} = ${challengeKey}`,
     )
     .limit(1)
 
   if (!row) {
     const completed = progress >= challenge.target
-    await db.insert(userChallenges).values({
-      netlifyId,
-      challengeKey,
-      progress: Math.min(progress, challenge.target),
-      completed,
-      completedAt: completed ? new Date() : undefined,
-    }).onConflictDoNothing()
+
+    await db
+      .insert(userChallenges)
+      .values({
+        netlifyId,
+        challengeKey,
+        progress: Math.min(progress, challenge.target),
+        completed,
+        completedAt: completed ? new Date() : undefined,
+      })
+      .onConflictDoNothing()
 
     if (completed) {
       await db
         .update(userProfiles)
-        .set({ totalXp: sql`${userProfiles.totalXp} + ${challenge.xpReward}`, score: sql`${userProfiles.score} + ${challenge.xpReward}` })
+        .set({
+          totalXp: sql`${userProfiles.totalXp} + ${challenge.xpReward}`,
+          score: sql`${userProfiles.score} + ${challenge.xpReward}`,
+        })
         .where(eq(userProfiles.netlifyId, netlifyId))
     }
   } else if (!row.completed) {
     const newProgress = Math.min(progress, challenge.target)
     const completed = newProgress >= challenge.target
+
     await db
       .update(userChallenges)
       .set({
@@ -160,12 +326,17 @@ async function updateChallengeProgress(netlifyId: string, challengeKey: string, 
         completed,
         completedAt: completed ? new Date() : undefined,
       })
-      .where(sql`${userChallenges.netlifyId} = ${netlifyId} AND ${userChallenges.challengeKey} = ${challengeKey}`)
+      .where(
+        sql`${userChallenges.netlifyId} = ${netlifyId} AND ${userChallenges.challengeKey} = ${challengeKey}`,
+      )
 
     if (completed) {
       await db
         .update(userProfiles)
-        .set({ totalXp: sql`${userProfiles.totalXp} + ${challenge.xpReward}`, score: sql`${userProfiles.score} + ${challenge.xpReward}` })
+        .set({
+          totalXp: sql`${userProfiles.totalXp} + ${challenge.xpReward}`,
+          score: sql`${userProfiles.score} + ${challenge.xpReward}`,
+        })
         .where(eq(userProfiles.netlifyId, netlifyId))
     }
   }
