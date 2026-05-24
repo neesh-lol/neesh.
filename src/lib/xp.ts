@@ -22,11 +22,19 @@ function dailyXp(streak: number): number {
   return Math.min(streak * 100, 400)
 }
 
-async function awardBadge(userId: string, badgeId: string) {
+async function awardBadge(netlifyId: string, badgeId: string) {
   try {
+    const [profile] = await db
+      .select()
+      .from(userProfiles)
+      .where(eq(userProfiles.netlifyId, netlifyId))
+      .limit(1)
+
+    if (!profile?.id) return
+
     await db.execute(sql`
       insert into public.user_badges (user_id, badge_id)
-      values (${userId}, ${badgeId})
+      values (${profile.id}, ${badgeId})
       on conflict do nothing
     `)
   } catch (error) {
@@ -34,43 +42,43 @@ async function awardBadge(userId: string, badgeId: string) {
   }
 }
 
-async function awardMessageBadges(userId: string, messageCount: number) {
+async function awardMessageBadges(netlifyId: string, messageCount: number) {
   if (messageCount >= 1) {
-    await awardBadge(userId, 'first_message')
+    await awardBadge(netlifyId, 'first_message')
   }
 
   if (messageCount >= 100) {
-    await awardBadge(userId, 'hundred_messages')
+    await awardBadge(netlifyId, 'hundred_messages')
   }
 
   if (messageCount >= 1000) {
-    await awardBadge(userId, 'thousand_messages')
+    await awardBadge(netlifyId, 'thousand_messages')
   }
 
   if (messageCount >= 10000) {
-    await awardBadge(userId, 'ten_thousand_messages')
+    await awardBadge(netlifyId, 'ten_thousand_messages')
   }
 }
 
-async function awardStreakBadges(userId: string, streak: number) {
+async function awardStreakBadges(netlifyId: string, streak: number) {
   if (streak >= 7) {
-    await awardBadge(userId, 'seven_day_streak')
+    await awardBadge(netlifyId, 'seven_day_streak')
   }
 
   if (streak >= 30) {
-    await awardBadge(userId, 'thirty_day_streak')
+    await awardBadge(netlifyId, 'thirty_day_streak')
   }
 
   if (streak >= 50) {
-    await awardBadge(userId, 'fifty_day_streak')
+    await awardBadge(netlifyId, 'fifty_day_streak')
   }
 
   if (streak >= 100) {
-    await awardBadge(userId, 'hundred_day_streak')
+    await awardBadge(netlifyId, 'hundred_day_streak')
   }
 
   if (streak >= 365) {
-    await awardBadge(userId, 'year_streak')
+    await awardBadge(netlifyId, 'year_streak')
   }
 }
 
