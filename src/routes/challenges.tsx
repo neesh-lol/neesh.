@@ -421,7 +421,7 @@ const BADGE_DEFINITIONS = [
   {
     id: 'top_500',
     name: 'Top 500',
-    description: 'Reach the Top 500 ranked leaderboard.',
+    description: 'Reach Legend and place Top 500 on the ranked leaderboard.',
     icon: '🌟',
     rarity: 'legendary',
     category: 'ranked',
@@ -431,7 +431,7 @@ const BADGE_DEFINITIONS = [
   {
     id: 'top_100',
     name: 'Top 100',
-    description: 'Reach the Top 100 ranked leaderboard.',
+    description: 'Reach Legend and place Top 100 on the ranked leaderboard.',
     icon: '⭐',
     rarity: 'legendary',
     category: 'ranked',
@@ -441,7 +441,7 @@ const BADGE_DEFINITIONS = [
   {
     id: 'top_10',
     name: 'Top 10',
-    description: 'Reach the Top 10 ranked leaderboard.',
+    description: 'Reach Legend and place Top 10 on the ranked leaderboard.',
     icon: '💫',
     rarity: 'legendary',
     category: 'ranked',
@@ -574,6 +574,43 @@ function getRarityClass(rarity: string) {
   return 'border-zinc-700 bg-zinc-900 text-zinc-300'
 }
 
+function isLegendElo(elo: number) {
+  return elo >= 1600
+}
+
+async function awardBadgeIfNeeded(userId: string, badgeId: string, earnedBadgeIds: Set<string>) {
+  if (earnedBadgeIds.has(badgeId)) return
+
+  const { error } = await supabase
+    .from('user_badges')
+    .insert({
+      user_id: userId,
+      badge_id: badgeId,
+    })
+
+  if (error) {
+    console.error(`Badge award failed for ${badgeId}:`, error)
+    return
+  }
+
+  earnedBadgeIds.add(badgeId)
+
+  const { data: badge } = await supabase
+    .from('badges')
+    .select('name, icon')
+    .eq('id', badgeId)
+    .maybeSingle()
+
+  await supabase.from('notifications').insert({
+    user_id: userId,
+    actor_id: userId,
+    type: 'badge_unlocked',
+    title: 'Badge unlocked',
+    body: `${badge?.icon ?? '🏅'} ${badge?.name ?? 'New badge'} unlocked!`,
+    link: '/profile',
+  })
+}
+
 function ChallengesPage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
@@ -643,10 +680,14 @@ function ChallengesPage() {
 
       let isLegend = false
 
-      if (songWarsStats?.elo) {
+      const currentElo = songWarsStats?.elo ?? 1200
+      const userIsLegend = isLegendElo(currentElo)
+
+      if (userIsLegend) {
         const { data: topRows, error: legendError } = await supabase
           .from('songwars_stats')
           .select('user_id,elo')
+          .gte('elo', 1600)
           .order('elo', { ascending: false })
           .limit(500)
 
@@ -733,7 +774,9 @@ function ChallengesPage() {
       const earnedBadgeIds = new Set((earnedRows ?? []).map((row) => row.badge_id))
       const equippedBadges = new Set(profile.equipped_badges ?? [])
 
-      const badgeProgress: BadgeProgress[] = BADGE_DEFINITIONS.map((badge) => {
+      const badgeProgress: BadgeProgress[] = []
+
+      for (const badge of BADGE_DEFINITIONS) {
         const rawProgress = getBadgeProgressValue(
           badge.metric,
           profile,
@@ -743,9 +786,15 @@ function ChallengesPage() {
           earnedBadgeIds
         )
 
-        const unlocked = earnedBadgeIds.has(badge.id) || rawProgress >= badge.target
+        const qualifies = rawProgress >= badge.target
+        const alreadyUnlocked = earnedBadgeIds.has(badge.id)
+        const unlocked = alreadyUnlocked || qualifies
 
-        return {
+        if (qualifies && !alreadyUnlocked) {
+          await awardBadgeIfNeeded(user.id, badge.id, earnedBadgeIds)
+        }
+
+        badgeProgress.push({
           id: badge.id,
           name: badge.name,
           description: badge.description,
@@ -756,8 +805,8 @@ function ChallengesPage() {
           target: badge.target,
           unlocked,
           equipped: equippedBadges.has(badge.id),
-        }
-      })
+        })
+      }
 
       const mapped: Challenge[] = BASE_CHALLENGES.map((challenge) => {
         const progress = getProgress(challenge, profile, songWarsStats, isLegend)
