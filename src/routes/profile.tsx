@@ -64,6 +64,7 @@ interface Profile {
   bio: string
   avatarUrl: string
   bannerUrl: string
+  profileBannerEnabled: boolean
   profileTheme: string
   profileEffect: string
   profileBackground: string
@@ -269,6 +270,7 @@ function ProfilePage() {
     bio: '',
     avatarUrl: '',
     bannerUrl: '',
+    profileBannerEnabled: false,
     profileTheme: 'default',
     profileEffect: 'none',
     profileBackground: 'none',
@@ -325,6 +327,7 @@ function ProfilePage() {
           bio: data.bio ?? '',
           avatarUrl: data.avatar_url ?? '',
           bannerUrl: data.banner_url ?? '',
+          profileBannerEnabled: data.banner_enabled ?? false,
           profileTheme: data.profile_theme ?? 'default',
           profileEffect: data.profile_effect ?? 'none',
           profileBackground: data.profile_background ?? 'none',
@@ -480,6 +483,7 @@ function ProfilePage() {
       bio: profile.bio,
       avatar_url: profile.avatarUrl,
       banner_url: profile.bannerUrl,
+      banner_enabled: profile.profileBannerEnabled,
       profile_theme: profile.profileTheme,
       profile_effect: hasPremiumAccess ? profile.profileEffect : 'none',
       profile_background: hasPremiumAccess ? profile.profileBackground : 'none',
@@ -522,6 +526,7 @@ function ProfilePage() {
       bio: data.bio ?? p.bio,
       avatarUrl: data.avatar_url ?? p.avatarUrl,
       bannerUrl: data.banner_url ?? p.bannerUrl,
+      profileBannerEnabled: data.banner_enabled ?? p.profileBannerEnabled,
       profileTheme: data.profile_theme ?? p.profileTheme,
       profileEffect: data.profile_effect ?? p.profileEffect,
       profileBackground: data.profile_background ?? p.profileBackground,
@@ -548,6 +553,7 @@ function ProfilePage() {
   const cooldown = usernameCooldownRemaining()
   const isPremium = profile.isPremium || profile.username === FOUNDER_USERNAME || profile.isFounderOverride
   const hasGradient = isPremium && profile.profileColorPrimary && profile.profileColorSecondary
+  const showProfileBanner = isPremium && profile.profileBannerEnabled
 
   const gradientStyle = hasGradient
     ? { background: `linear-gradient(135deg, ${profile.profileColorPrimary}, ${profile.profileColorSecondary})` }
@@ -572,7 +578,7 @@ function ProfilePage() {
 
   return (
     <div className="flex flex-col min-h-screen overflow-y-auto pb-24" style={profileBackgroundStyle}>
-      {isPremium && profile.bannerUrl ? (
+      {showProfileBanner && profile.bannerUrl ? (
         <div className="relative h-32 md:h-40 flex-shrink-0">
           <img src={profile.bannerUrl} alt="" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 to-transparent" />
@@ -583,7 +589,7 @@ function ProfilePage() {
             <Image size={14} />
           </button>
         </div>
-      ) : hasGradient ? (
+      ) : showProfileBanner && hasGradient ? (
         <div className="relative h-32 md:h-40 flex-shrink-0" style={gradientStyle}>
           <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 to-transparent" />
           <button
@@ -593,7 +599,7 @@ function ProfilePage() {
             <Image size={12} /> Upload banner
           </button>
         </div>
-      ) : isPremium ? (
+      ) : showProfileBanner && isPremium ? (
         <div className="relative h-24 flex-shrink-0 bg-zinc-900 border-b border-zinc-800">
           <button
             onClick={() => bannerInputRef.current?.click()}
@@ -864,6 +870,67 @@ function ProfilePage() {
               <Crown size={14} className="text-yellow-400" />
               <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">NEESH.+ Customization</span>
             </div>
+
+            <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <div>
+                <p className="text-sm text-white">Profile Banner</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Show or hide the banner area at the top of your profile
+                </p>
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={profile.profileBannerEnabled}
+                onClick={() =>
+                  setProfile((p) => ({
+                    ...p,
+                    profileBannerEnabled: !p.profileBannerEnabled,
+                  }))
+                }
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+                  profile.profileBannerEnabled ? 'bg-emerald-500' : 'bg-zinc-600'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                    profile.profileBannerEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {profile.profileBannerEnabled && (
+              <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                <div>
+                  <p className="text-sm text-white">Banner Image</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Upload, change, or remove your profile banner
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => bannerInputRef.current?.click()}
+                    className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
+                  >
+                    {profile.bannerUrl ? 'Change' : 'Upload'}
+                  </button>
+
+                  {profile.bannerUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setProfile((p) => ({ ...p, bannerUrl: '' }))}
+                      className="px-3 py-2 text-xs text-red-400 hover:text-red-300 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-2">
