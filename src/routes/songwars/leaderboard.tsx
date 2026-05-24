@@ -178,7 +178,7 @@ function SongWarsLeaderboardPage() {
             <Crown size={24} className="text-yellow-400" />
           </h2>
           <p className="text-sm text-zinc-400 mt-1">
-            Free users can view this leaderboard. Ranked play can be a NEESH.+ perk later.
+            Top Legend players only. Reach 2500 ELO to appear.
           </p>
         </div>
 
