@@ -71,6 +71,8 @@ interface Profile {
   nameEffect: string
   profileColorPrimary: string
   profileColorSecondary: string
+  equippedBadges: string[]
+  equippedFlair: string
   interests: string[]
   messageCount?: number
   totalXp?: number
@@ -81,6 +83,33 @@ interface Profile {
   isPremium?: boolean
   isFounderOverride?: boolean
   profileViews?: number
+}
+
+interface Badge {
+  id: string
+  name: string
+  description: string | null
+  icon: string | null
+  rarity: string | null
+  earned_at?: string | null
+}
+
+const FLAIR_OPTIONS = [
+  'Night Owl',
+  'Future Lawyer',
+  'Music Addict',
+  'Collector',
+  'Competitive',
+  'Producer',
+  'Creative',
+  'Top Chatter',
+]
+
+function getBadgeRarityClass(rarity?: string | null) {
+  if (rarity === 'legendary') return 'border-yellow-400/70 bg-yellow-400/10 text-yellow-200'
+  if (rarity === 'epic') return 'border-purple-400/70 bg-purple-400/10 text-purple-200'
+  if (rarity === 'rare') return 'border-blue-400/70 bg-blue-400/10 text-blue-200'
+  return 'border-zinc-700 bg-zinc-900 text-zinc-300'
 }
 
 function DefaultAvatar({ size = 64 }: { size?: number }) {
@@ -277,6 +306,8 @@ function ProfilePage() {
     nameEffect: 'none',
     profileColorPrimary: '',
     profileColorSecondary: '',
+    equippedBadges: [],
+    equippedFlair: '',
     interests: [],
   })
 
@@ -292,6 +323,8 @@ function ProfilePage() {
   const [followersList, setFollowersList] = useState<any[]>([])
   const [followingList, setFollowingList] = useState<any[]>([])
   const [streakInfo, setStreakInfo] = useState<{ freezesRemaining: number } | null>(null)
+  const [earnedBadges, setEarnedBadges] = useState<Badge[]>([])
+  const [loadingBadges, setLoadingBadges] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bannerInputRef = useRef<HTMLInputElement>(null)
@@ -334,6 +367,8 @@ function ProfilePage() {
           nameEffect: data.name_effect ?? 'none',
           profileColorPrimary: data.profile_color_primary ?? '',
           profileColorSecondary: data.profile_color_secondary ?? '',
+          equippedBadges: Array.isArray(data.equipped_badges) ? data.equipped_badges.slice(0, 3) : [],
+          equippedFlair: data.equipped_flair ?? '',
           interests: data.interests ?? [],
           messageCount: data.message_count ?? 0,
           totalXp: data.total_xp ?? 0,
@@ -362,6 +397,40 @@ function ProfilePage() {
     }
 
     loadProfile()
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+
+    async function loadBadges() {
+      setLoadingBadges(true)
+
+      const { data, error } = await supabase
+        .from('user_badges')
+        .select('earned_at, badges(id, name, description, icon, rarity)')
+        .eq('user_id', user.id)
+        .order('earned_at', { ascending: false })
+
+      if (error) {
+        console.error('Badges load error:', error)
+        setEarnedBadges([])
+        setLoadingBadges(false)
+        return
+      }
+
+      const badges =
+        data
+          ?.map((row: any) => ({
+            ...(row.badges ?? {}),
+            earned_at: row.earned_at,
+          }))
+          .filter((badge: any) => badge?.id) ?? []
+
+      setEarnedBadges(badges)
+      setLoadingBadges(false)
+    }
+
+    loadBadges()
   }, [user])
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -448,6 +517,34 @@ function ProfilePage() {
     }))
   }
 
+  const toggleBadgeEquip = (badgeId: string) => {
+    setProfile((p) => {
+      const alreadyEquipped = p.equippedBadges.includes(badgeId)
+
+      if (alreadyEquipped) {
+        return {
+          ...p,
+          equippedBadges: p.equippedBadges.filter((id) => id !== badgeId),
+        }
+      }
+
+      if (p.equippedBadges.length >= 3) {
+        setError('You can only display 3 badges at once.')
+        return p
+      }
+
+      setError('')
+      return {
+        ...p,
+        equippedBadges: [...p.equippedBadges, badgeId],
+      }
+    })
+  }
+
+  const equippedBadgeObjects = profile.equippedBadges
+    .map((badgeId) => earnedBadges.find((badge) => badge.id === badgeId))
+    .filter(Boolean) as Badge[]
+
   const canChangeUsername = () => {
     if (!profile.lastUsernameChange) return true
     const cooldownEnd = new Date(new Date(profile.lastUsernameChange).getTime() + 7 * 24 * 60 * 60 * 1000)
@@ -490,6 +587,8 @@ function ProfilePage() {
       name_effect: hasPremiumAccess ? profile.nameEffect : 'none',
       profile_color_primary: profile.profileColorPrimary,
       profile_color_secondary: profile.profileColorSecondary,
+      equipped_badges: profile.equippedBadges.slice(0, 3),
+      equipped_flair: profile.equippedFlair || null,
       interests: profile.interests,
       weekly_match_opt_in: profile.weeklyMatchOptIn ?? false,
       total_xp: profile.totalXp ?? 0,
@@ -533,6 +632,8 @@ function ProfilePage() {
       nameEffect: data.name_effect ?? p.nameEffect,
       profileColorPrimary: data.profile_color_primary ?? p.profileColorPrimary,
       profileColorSecondary: data.profile_color_secondary ?? p.profileColorSecondary,
+      equippedBadges: Array.isArray(data.equipped_badges) ? data.equipped_badges.slice(0, 3) : p.equippedBadges,
+      equippedFlair: data.equipped_flair ?? p.equippedFlair,
       interests: data.interests ?? p.interests,
       weeklyMatchOptIn: data.weekly_match_opt_in ?? p.weeklyMatchOptIn,
     }))
@@ -663,7 +764,24 @@ function ProfilePage() {
                   />
                 </p>
                 {profile.username && <p className="text-xs text-zinc-500">@{profile.username}</p>}
-                <p className="text-xs text-zinc-600">{user.email}</p>
+                {profile.equippedFlair && (
+                  <p className="text-[11px] text-zinc-300 mt-0.5">{profile.equippedFlair}</p>
+                )}
+                {equippedBadgeObjects.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {equippedBadgeObjects.map((badge) => (
+                      <span
+                        key={badge.id}
+                        title={badge.name}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${getBadgeRarityClass(badge.rarity)}`}
+                      >
+                        <span>{badge.icon ?? '🏅'}</span>
+                        <span>{badge.name}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-zinc-600 mt-1">{user.email}</p>
               </div>
           </div>
         ) : (
@@ -860,6 +978,99 @@ function ProfilePage() {
                   <X size={14} /> Remove
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Trophy size={14} className="text-yellow-400" />
+            <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Profile Decorations</span>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-white">Displayed Badges</p>
+                <p className="text-xs text-zinc-500 mt-0.5">Choose up to 3 earned badges to show on your profile.</p>
+              </div>
+              <span className="text-xs text-zinc-500">{profile.equippedBadges.length}/3</span>
+            </div>
+
+            {loadingBadges ? (
+              <p className="text-xs text-zinc-500">Loading badges…</p>
+            ) : earnedBadges.length === 0 ? (
+              <p className="text-xs text-zinc-500">
+                You have not unlocked any badges yet. Earn badges by adding friends, sending messages, keeping streaks, and winning Song Wars.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {earnedBadges.map((badge) => {
+                  const equipped = profile.equippedBadges.includes(badge.id)
+
+                  return (
+                    <button
+                      key={badge.id}
+                      type="button"
+                      onClick={() => toggleBadgeEquip(badge.id)}
+                      className={`rounded-lg border p-3 text-left transition-colors ${
+                        equipped
+                          ? 'border-white bg-white text-zinc-950'
+                          : 'border-zinc-700 bg-zinc-950 text-zinc-300 hover:text-white hover:border-zinc-500'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="text-lg">{badge.icon ?? '🏅'}</span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold truncate">{badge.name}</p>
+                          <p className={`text-[10px] mt-0.5 ${equipped ? 'text-zinc-600' : 'text-zinc-500'}`}>
+                            {badge.description ?? 'Unlocked badge'}
+                          </p>
+                          <p className={`text-[10px] mt-1 uppercase tracking-wider ${equipped ? 'text-zinc-500' : 'text-zinc-600'}`}>
+                            {equipped ? 'Displayed' : badge.rarity ?? 'common'}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+            <div>
+              <p className="text-sm text-white">Profile Flair</p>
+              <p className="text-xs text-zinc-500 mt-0.5">Choose one small label to show under your name.</p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setProfile((p) => ({ ...p, equippedFlair: '' }))}
+                className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                  profile.equippedFlair === ''
+                    ? 'border-white bg-white text-zinc-950'
+                    : 'border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
+                }`}
+              >
+                None
+              </button>
+
+              {FLAIR_OPTIONS.map((flair) => (
+                <button
+                  key={flair}
+                  type="button"
+                  onClick={() => setProfile((p) => ({ ...p, equippedFlair: flair }))}
+                  className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                    profile.equippedFlair === flair
+                      ? 'border-white bg-white text-zinc-950'
+                      : 'border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
+                  }`}
+                >
+                  {flair}
+                </button>
+              ))}
             </div>
           </div>
         </div>
