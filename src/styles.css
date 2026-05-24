@@ -71,3 +71,286 @@ body {
 .mention-highlight:hover {
   text-decoration: underline;
 }
+/* =====================================================
+   NEESH.+ PROFILE BACKGROUND EFFECTS
+   ===================================================== */
+
+/* Animated Gradient */
+
+.profile-effect-gradient {
+  position: relative;
+  overflow: hidden;
+
+  background: linear-gradient(
+    -45deg,
+    #7c3aed,
+    #2563eb,
+    #ec4899,
+    #7c3aed
+  );
+
+  background-size: 400% 400%;
+
+  animation: neesh-gradient 12s ease infinite;
+}
+
+@keyframes neesh-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Floating Particles */
+
+.profile-effect-particles {
+  position: relative;
+  overflow: hidden;
+}
+
+.profile-effect-particles::before {
+  content: "";
+
+  position: absolute;
+  inset: 0;
+
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,.25) 1px, transparent 1px);
+
+  background-size: 40px 40px;
+
+  animation: particles-float 18s linear infinite;
+
+  pointer-events: none;
+}
+
+@keyframes particles-float {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(-200px);
+  }
+}
+
+/* Snow */
+
+.profile-effect-snow {
+  position: relative;
+  overflow: hidden;
+}
+
+.profile-effect-snow::before {
+  content: "";
+
+  position: absolute;
+  inset: 0;
+
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,.8) 1px, transparent 1px);
+
+  background-size: 30px 30px;
+
+  opacity: .45;
+
+  animation: snow-fall 15s linear infinite;
+
+  pointer-events: none;
+}
+
+@keyframes snow-fall {
+  from {
+    transform: translateY(-50px);
+  }
+
+  to {
+    transform: translateY(100vh);
+  }
+}
+
+/* VHS Static */
+
+.profile-effect-vhs {
+  position: relative;
+  overflow: hidden;
+}
+
+.profile-effect-vhs::before {
+  content: "";
+
+  position: absolute;
+  inset: 0;
+
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255,255,255,.025),
+      rgba(255,255,255,.025) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+
+  animation: vhs-shift .15s infinite linear;
+
+  pointer-events: none;
+}
+
+@keyframes vhs-shift {
+  0% {
+    transform: translateY(0);
+  }
+
+  100% {
+    transform: translateY(3px);
+  }
+}
+
+/* Matrix Rain */
+
+.profile-effect-matrix {
+  position: relative;
+  overflow: hidden;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(0,255,0,.05),
+      rgba(0,0,0,.2)
+    );
+}
+
+.profile-effect-matrix::before {
+  content: "";
+
+  position: absolute;
+  inset: 0;
+
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 24px,
+      rgba(0,255,0,.06) 25px
+    );
+
+  animation: matrix-rain 3s linear infinite;
+
+  pointer-events: none;
+}
+
+@keyframes matrix-rain {
+  from {
+    transform: translateY(-100%);
+  }
+
+  to {
+    transform: translateY(100%);
+  }
+}
+
+/* Neon Glow */
+
+.profile-effect-neon {
+  position: relative;
+
+  box-shadow:
+    0 0 10px rgba(168,85,247,.4),
+    0 0 25px rgba(168,85,247,.3),
+    0 0 50px rgba(168,85,247,.15);
+
+  animation: neon-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes neon-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px rgba(168,85,247,.4),
+      0 0 25px rgba(168,85,247,.3),
+      0 0 50px rgba(168,85,247,.15);
+  }
+
+  50% {
+    box-shadow:
+      0 0 20px rgba(168,85,247,.7),
+      0 0 40px rgba(168,85,247,.5),
+      0 0 70px rgba(168,85,247,.3);
+  }
+}
+
+/* Stars */
+
+.profile-effect-stars {
+  position: relative;
+  overflow: hidden;
+}
+
+.profile-effect-stars::before {
+  content: "";
+
+  position: absolute;
+  inset: 0;
+
+  background-image:
+    radial-gradient(circle, white 1px, transparent 1px);
+
+  background-size: 50px 50px;
+
+  opacity: .35;
+
+  animation: stars-twinkle 4s ease-in-out infinite;
+
+  pointer-events: none;
+}
+
+@keyframes stars-twinkle {
+  0%,
+  100% {
+    opacity: .2;
+  }
+
+  50% {
+    opacity: .6;
+  }
+}
+
+/* Sparkles */
+
+.profile-effect-sparkles {
+  position: relative;
+  overflow: hidden;
+}
+
+.profile-effect-sparkles::before {
+  content: "";
+
+  position: absolute;
+  inset: 0;
+
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,.9) 1px, transparent 1px);
+
+  background-size: 60px 60px;
+
+  animation: sparkle-shift 6s linear infinite;
+
+  pointer-events: none;
+}
+
+@keyframes sparkle-shift {
+  from {
+    transform: translateX(-20px);
+  }
+
+  to {
+    transform: translateX(20px);
+  }
+}
