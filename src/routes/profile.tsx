@@ -607,7 +607,6 @@ function ProfilePage() {
       profile.isFounderOverride
 
     const updates: any = {
-      id: user.id,
       display_name: profile.displayName,
       username: usernameInput || null,
       bio: profile.bio,
@@ -639,9 +638,10 @@ function ProfilePage() {
 
     const { data, error } = await supabase
       .from('profiles')
-      .upsert(updates)
+      .update(updates)
+      .eq('id', user.id)
       .select()
-      .single()
+      .maybeSingle()
 
     if (error) {
       console.error('Profile save error:', error)
