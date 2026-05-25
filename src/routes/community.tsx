@@ -417,7 +417,6 @@ function CommunityPage() {
       avatar_url: myProfile?.avatar_url ?? '',
       total_xp: currentXp + 10,
       message_count: newMessageCount,
-      updated_at: new Date().toISOString(),
     }
 
     const { data, error } = await supabase
