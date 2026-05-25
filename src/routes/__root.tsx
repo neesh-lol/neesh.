@@ -847,21 +847,30 @@ function SidebarContent({
     <>
       <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-1">
         <NavItem to="/home" icon={Home} label="Home" onClick={onNavClick} />
-        <NavItem to="/find-people" icon={Sparkles} label="Find People" onClick={onNavClick} />
-        <NavItem to="/shop" icon={ShoppingBag} label="Shop" onClick={onNavClick} />
-        <NavItem to="/weekly-match" icon={Users} label="Weekly Match" onClick={onNavClick} />
-        <NavItem to="/chat" icon={Hash} label="Interest Chat" onClick={onNavClick} />
-        <NavItem to="/community" icon={MessageSquare} label="Community" onClick={onNavClick} />
-        <NavItem to="/messages" icon={Mail} label="Messages" onClick={onNavClick} badge={unreadMessages} />
         <NavItem to="/notifications" icon={Bell} label="Notifications" onClick={onNavClick} badge={unreadNotifications} />
-        <NavItem to="/challenges" icon={Target} label="Challenges" onClick={onNavClick} />
-        <NavItem to="/songwars" icon={Music2} label="Song Wars" onClick={onNavClick} />
+
+        <div className="my-2 border-t border-zinc-800/50" />
+
+        <NavItem to="/find-people" icon={Sparkles} label="Find People" onClick={onNavClick} />
         <NavItem to="/friends" icon={Users} label="Friends" onClick={onNavClick} badge={pendingFriendRequests} />
+        <NavItem to="/messages" icon={Mail} label="Messages" onClick={onNavClick} badge={unreadMessages} />
+        <NavItem to="/weekly-match" icon={Users} label="Weekly Match" onClick={onNavClick} />
+
+        <div className="my-2 border-t border-zinc-800/50" />
+
+        <NavItem to="/community" icon={MessageSquare} label="Community" onClick={onNavClick} />
+        <NavItem to="/chat" icon={Hash} label="Interest Chat" onClick={onNavClick} />
+        <NavItem to="/premium-chat" icon={Crown} label="NEESH.+ Chat" onClick={onNavClick} />
+
+        <div className="my-2 border-t border-zinc-800/50" />
+
+        <NavItem to="/songwars" icon={Music2} label="Song Wars" onClick={onNavClick} />
+        <NavItem to="/challenges" icon={Target} label="Challenges" onClick={onNavClick} />
         <NavItem to="/leaderboard" icon={Trophy} label="Leaderboard" onClick={onNavClick} />
 
         <div className="my-2 border-t border-zinc-800/50" />
 
-        <NavItem to="/premium-chat" icon={Crown} label="NEESH.+ Chat" onClick={onNavClick} />
+        <NavItem to="/shop" icon={ShoppingBag} label="Shop" onClick={onNavClick} />
       </nav>
 
       <div className="shrink-0 p-3 border-t border-zinc-800 space-y-1">
