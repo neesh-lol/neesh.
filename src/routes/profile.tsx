@@ -628,8 +628,6 @@ function ProfilePage() {
       longest_streak: profile.longestStreak ?? 0,
       message_count: profile.messageCount ?? 0,
       profile_views: profile.profileViews ?? 0,
-      is_premium: profile.isPremium ?? false,
-      is_founder_override: profile.isFounderOverride ?? false,
       last_username_change:
         usernameChanged && canChangeUsername()
           ? new Date().toISOString()
