@@ -286,23 +286,14 @@ export function UserPopup({
   const isOnline = presence.status === 'online'
   const statusText = isOnline ? 'Online' : formatLastSeen(presence.lastSeen)
 
-  const level = Math.min(
-  100,
-  Math.max(1, Math.floor((profile?.totalXp ?? 0) / 1000))
-)
-
-const xpForCurrentLevel = (level - 1) * 1000
-const xpForNextLevel = level * 1000
-
-const progressPercent =
-  level >= 100
-    ? 100
-    : Math.min(
-        100,
-        (((profile?.totalXp ?? 0) - xpForCurrentLevel) /
-          (xpForNextLevel - xpForCurrentLevel)) *
-          100
-      )
+  const totalXp = profile?.totalXp ?? 0
+  const level = Math.min(100, Math.floor(totalXp / 1000) + 1)
+  const isMaxLevel = level >= 100
+  const xpForCurrentLevel = (level - 1) * 1000
+  const xpIntoLevel = isMaxLevel ? 1000 : Math.max(0, totalXp - xpForCurrentLevel)
+  const xpForNextLevel = 1000
+  const xpToNextLevel = isMaxLevel ? 0 : Math.max(0, xpForNextLevel - xpIntoLevel)
+  const progressPercent = isMaxLevel ? 100 : Math.min(100, (xpIntoLevel / xpForNextLevel) * 100)
   
   return (
     <div
@@ -363,19 +354,38 @@ const progressPercent =
               </button>
             </div>
 
-            {!profile.isSelf && (
-              <div className="flex items-center gap-3 mt-3">
-                <div className="flex items-center gap-1 text-xs text-zinc-400">
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-300">
                   <Zap size={12} className="text-yellow-400" />
-                  {profile.totalXp?.toLocaleString() ?? 0}
+                  <span className="font-medium">Level {level}</span>
                 </div>
 
-                <div className="flex items-center gap-1 text-xs text-zinc-400">
-                  <Flame size={12} className="text-orange-400" />
+                <span className="text-[11px] text-zinc-500">
+                  {totalXp.toLocaleString()} XP
+                </span>
+              </div>
+
+              <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-purple-500 via-blue-500 to-cyan-400 rounded-full transition-all"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] text-zinc-500">
+                <span>
+                  {isMaxLevel
+                    ? 'MAX LEVEL'
+                    : `${xpToNextLevel.toLocaleString()} XP to Level ${level + 1}`}
+                </span>
+
+                <div className="flex items-center gap-1">
+                  <Flame size={10} className="text-orange-400" />
                   {profile.currentStreak ?? 0}d
                 </div>
               </div>
-            )}
+            </div>
           </div>
 
           <div className="border-t border-zinc-800 px-2 py-2 space-y-0.5">
