@@ -112,6 +112,39 @@ function getBadgeRarityClass(rarity?: string | null) {
   return 'border-zinc-700 bg-zinc-900 text-zinc-300'
 }
 
+function getProfileLevel(totalXp: number) {
+  return Math.min(100, Math.floor(totalXp / 1000) + 1)
+}
+
+function getProfileLevelInfo(totalXp: number) {
+  const level = getProfileLevel(totalXp)
+
+  if (level >= 100) {
+    return {
+      level,
+      xpIntoLevel: 1000,
+      xpForNextLevel: 1000,
+      percent: 100,
+      xpToNextLevel: 0,
+      isMax: true,
+    }
+  }
+
+  const levelStartXp = (level - 1) * 1000
+  const xpIntoLevel = Math.max(0, totalXp - levelStartXp)
+  const xpForNextLevel = 1000
+  const xpToNextLevel = Math.max(0, xpForNextLevel - xpIntoLevel)
+
+  return {
+    level,
+    xpIntoLevel,
+    xpForNextLevel,
+    percent: Math.min(100, (xpIntoLevel / xpForNextLevel) * 100),
+    xpToNextLevel,
+    isMax: false,
+  }
+}
+
 function DefaultAvatar({ size = 64 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" className="rounded-full">
@@ -676,6 +709,8 @@ function ProfilePage() {
     profile.profileColorPrimary,
     profile.profileColorSecondary
   )
+  const totalXp = profile.totalXp ?? 0
+  const levelInfo = getProfileLevelInfo(totalXp)
 
   return (
     <div className="flex flex-col min-h-screen overflow-y-auto pb-24" style={profileBackgroundStyle}>
@@ -826,6 +861,48 @@ function ProfilePage() {
             </div>
           </div>
         )}
+
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-xs text-zinc-500 uppercase tracking-wider">Profile Level</p>
+              <p className="text-2xl font-black text-white mt-0.5">
+                Level {levelInfo.level}
+              </p>
+            </div>
+
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500/20 to-cyan-500/10 border border-purple-500/30 flex items-center justify-center">
+              <span className="text-sm font-black text-white">
+                LVL {levelInfo.level}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-xs mb-2">
+            <span className="text-zinc-400">
+              {levelInfo.isMax
+                ? 'Max level reached'
+                : `${levelInfo.xpIntoLevel.toLocaleString()} / ${levelInfo.xpForNextLevel.toLocaleString()} XP`}
+            </span>
+
+            <span className="text-zinc-500">
+              {levelInfo.isMax
+                ? 'MAX'
+                : `${levelInfo.xpToNextLevel.toLocaleString()} XP to Level ${levelInfo.level + 1}`}
+            </span>
+          </div>
+
+          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-purple-500 to-cyan-400 rounded-full transition-all"
+              style={{ width: `${levelInfo.percent}%` }}
+            />
+          </div>
+
+          <p className="text-[11px] text-zinc-600 mt-2">
+            Level 100 is the max level at 100,000 XP.
+          </p>
+        </div>
 
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-center">
