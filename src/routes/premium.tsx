@@ -214,6 +214,16 @@ function PremiumPage() {
     loadPremiumStatus()
   }, [user])
 
+  const openCancelPortal = () => {
+    const confirmed = confirm(
+      'Cancel NEESH.+? You will be sent to Stripe to manage your subscription. Your premium features should remain active until the end of your current billing period.'
+    )
+
+    if (!confirmed) return
+
+    window.location.href = 'https://billing.stripe.com/p/login/28E28q4Uh6fc5Jw35ddnW00'
+  }
+
   if (!ready || !user || loading) {
     return (
       <div className="flex items-center justify-center h-full bg-zinc-950">
@@ -438,17 +448,32 @@ function PremiumPage() {
         )}
 
         {status?.isPremium && !status?.isFounder && (
-          <div className="bg-gradient-to-r from-white/5 to-zinc-800/50 border border-white/20 rounded-xl p-5">
-            <div className="flex items-center gap-3 mb-2">
-              <BadgeCheck size={20} className="text-white" />
-              <h2 className="text-sm font-semibold text-white">
-                Active Subscription
-              </h2>
+          <div className="bg-gradient-to-r from-white/5 to-zinc-800/50 border border-white/20 rounded-xl p-5 space-y-4">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <BadgeCheck size={20} className="text-white" />
+                <h2 className="text-sm font-semibold text-white">
+                  Active Subscription
+                </h2>
+              </div>
+
+              <p className="text-xs text-zinc-400">
+                Your NEESH.+ membership is active.
+              </p>
             </div>
 
-            <p className="text-xs text-zinc-400">
-              Your NEESH.+ membership is active.
-            </p>
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p className="text-xs text-zinc-400 mb-3">
+                Need to cancel? You will be sent to Stripe to securely manage your subscription.
+              </p>
+
+              <button
+                onClick={openCancelPortal}
+                className="w-full py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors"
+              >
+                Cancel NEESH.+
+              </button>
+            </div>
           </div>
         )}
 
@@ -605,6 +630,20 @@ function PremiumPage() {
 
               <ChevronRight size={14} className="text-zinc-600" />
             </button>
+
+            {!status?.isFounder && (
+              <button
+                onClick={openCancelPortal}
+                className="w-full flex items-center justify-between bg-red-500/10 border border-red-500/30 rounded-xl p-4 hover:bg-red-500/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <XCircle size={16} className="text-red-400" />
+                  <span className="text-sm text-red-400">Cancel NEESH.+</span>
+                </div>
+
+                <ChevronRight size={14} className="text-red-400/60" />
+              </button>
+            )}
           </div>
         )}
       </div>
