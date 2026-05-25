@@ -678,6 +678,36 @@ function ProfilePage() {
     setSaving(false)
   }
 
+  const toggleWeeklyMatchOptIn = async () => {
+    if (!user) return
+
+    const nextValue = !(profile.weeklyMatchOptIn ?? false)
+
+    setProfile((p) => ({
+      ...p,
+      weeklyMatchOptIn: nextValue,
+    }))
+
+    setError('')
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        weekly_match_opt_in: nextValue,
+      })
+      .eq('id', user.id)
+
+    if (error) {
+      console.error('Weekly match opt-in update error:', error)
+      setError(error.message || 'Failed to update Weekly Match Drops')
+
+      setProfile((p) => ({
+        ...p,
+        weeklyMatchOptIn: !nextValue,
+      }))
+    }
+  }
+
   if (!ready || !user || loading) {
     return (
       <div className="flex items-center justify-center h-full bg-zinc-950">
@@ -1435,7 +1465,7 @@ function ProfilePage() {
             type="button"
             role="switch"
             aria-checked={profile.weeklyMatchOptIn}
-            onClick={() => setProfile((p) => ({ ...p, weeklyMatchOptIn: !p.weeklyMatchOptIn }))}
+            onClick={toggleWeeklyMatchOptIn}
             className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
               profile.weeklyMatchOptIn ? 'bg-emerald-500' : 'bg-zinc-600'
             }`}
