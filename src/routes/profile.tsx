@@ -652,7 +652,7 @@ function ProfilePage() {
 
     setProfile((p) => ({
       ...p,
-      username: data?.username ?? usernameInput || null,
+      username: data?.username ?? (usernameInput || null),
       lastUsernameChange: data?.last_username_change ?? updates.last_username_change,
       displayName: data?.display_name ?? updates.display_name ?? p.displayName,
       bio: data?.bio ?? updates.bio ?? p.bio,
