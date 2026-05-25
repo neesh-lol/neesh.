@@ -166,7 +166,6 @@ function CommunityPage() {
         typer_id: user.id,
         receiver_id: null,
         display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
-        updated_at: new Date().toISOString(),
       })
 
     if (error) {
