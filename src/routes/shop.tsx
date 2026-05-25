@@ -307,11 +307,7 @@ function ShopPage() {
         )}
       </div>
 
-      <div className="px-5 py-4 border-t border-zinc-900">
-        <p className="text-[11px] text-zinc-600">
-          Purchases currently open Stripe checkout. Automatic unlocks require Stripe webhook fulfillment.
-        </p>
-      </div>
+      
     </div>
   )
 }
