@@ -286,6 +286,24 @@ export function UserPopup({
   const isOnline = presence.status === 'online'
   const statusText = isOnline ? 'Online' : formatLastSeen(presence.lastSeen)
 
+  const level = Math.min(
+  100,
+  Math.max(1, Math.floor((profile?.totalXp ?? 0) / 1000))
+)
+
+const xpForCurrentLevel = (level - 1) * 1000
+const xpForNextLevel = level * 1000
+
+const progressPercent =
+  level >= 100
+    ? 100
+    : Math.min(
+        100,
+        (((profile?.totalXp ?? 0) - xpForCurrentLevel) /
+          (xpForNextLevel - xpForCurrentLevel)) *
+          100
+      )
+  
   return (
     <div
       ref={ref}
