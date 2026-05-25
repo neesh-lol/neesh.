@@ -1,5 +1,5 @@
 import { HeadContent, Link, Outlet, Scripts, createRootRoute, useNavigate, useLocation } from '@tanstack/react-router'
-import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown, Bell, Music2, Sparkles } from 'lucide-react'
+import { Hash, Home, MessageSquare, Mail, Settings, Trophy, User, Target, Menu, X, Users, Crown, Bell, Music2, Sparkles, ShoppingBag } from 'lucide-react'
 import { IdentityProvider, useIdentity } from '../lib/identity-context'
 import { CallbackHandler } from '../components/CallbackHandler'
 import { supabase } from '../lib/supabase'
@@ -848,6 +848,7 @@ function SidebarContent({
       <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-1">
         <NavItem to="/home" icon={Home} label="Home" onClick={onNavClick} />
         <NavItem to="/find-people" icon={Sparkles} label="Find People" onClick={onNavClick} />
+        <NavItem to="/shop" icon={ShoppingBag} label="Shop" onClick={onNavClick} />
         <NavItem to="/weekly-match" icon={Users} label="Weekly Match" onClick={onNavClick} />
         <NavItem to="/chat" icon={Hash} label="Interest Chat" onClick={onNavClick} />
         <NavItem to="/community" icon={MessageSquare} label="Community" onClick={onNavClick} />
