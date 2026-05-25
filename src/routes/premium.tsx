@@ -31,6 +31,7 @@ export const Route = createFileRoute('/premium')({
 interface SubStatus {
   isPremium: boolean
   isFounder: boolean
+  isFreeGrant: boolean
   subscriptionTier: string | null
 }
 
@@ -187,7 +188,7 @@ function PremiumPage() {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('username,is_premium,is_founder_override')
+        .select('username,is_premium,is_founder_override,free_premium_grant')
         .eq('id', user.id)
         .maybeSingle()
 
@@ -200,11 +201,13 @@ function PremiumPage() {
         data?.username === '@ceo' ||
         data?.is_founder_override === true
 
-      const isPremium = isFounder || data?.is_premium === true
+      const isFreeGrant = data?.free_premium_grant === true
+      const isPremium = isFounder || data?.is_premium === true || isFreeGrant
 
       setStatus({
         isPremium,
         isFounder,
+        isFreeGrant,
         subscriptionTier: isPremium ? 'neesh+' : null,
       })
 
@@ -453,27 +456,31 @@ function PremiumPage() {
               <div className="flex items-center gap-3 mb-2">
                 <BadgeCheck size={20} className="text-white" />
                 <h2 className="text-sm font-semibold text-white">
-                  Active Subscription
+                  {status?.isFreeGrant ? 'Admin-Granted NEESH.+' : 'Active Subscription'}
                 </h2>
               </div>
 
               <p className="text-xs text-zinc-400">
-                Your NEESH.+ membership is active.
+                {status?.isFreeGrant
+                  ? 'Your NEESH.+ access was granted by an admin.'
+                  : 'Your NEESH.+ membership is active.'}
               </p>
             </div>
 
-            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
-              <p className="text-xs text-zinc-400 mb-3">
-                Need to cancel? You will be sent to Stripe to securely manage your subscription.
-              </p>
+            {!status?.isFreeGrant && (
+              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+                <p className="text-xs text-zinc-400 mb-3">
+                  Need to cancel? You will be sent to Stripe to securely manage your subscription.
+                </p>
 
-              <button
-                onClick={openCancelPortal}
-                className="w-full py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors"
-              >
-                Cancel NEESH.+
-              </button>
-            </div>
+                <button
+                  onClick={openCancelPortal}
+                  className="w-full py-2.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors"
+                >
+                  Cancel NEESH.+
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -631,7 +638,7 @@ function PremiumPage() {
               <ChevronRight size={14} className="text-zinc-600" />
             </button>
 
-            {!status?.isFounder && (
+            {!status?.isFounder && !status?.isFreeGrant && (
               <button
                 onClick={openCancelPortal}
                 className="w-full flex items-center justify-between bg-red-500/10 border border-red-500/30 rounded-xl p-4 hover:bg-red-500/20 transition-colors"
