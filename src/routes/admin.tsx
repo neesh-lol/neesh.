@@ -42,6 +42,7 @@ type ProfileMap = Record<
     avatar_url: string | null
     is_premium: boolean | null
     is_founder_override: boolean | null
+    free_premium_grant: boolean | null
   }
 >
 
@@ -125,7 +126,7 @@ function AdminPage() {
         notificationsTodayRes,
       ] = await Promise.all([
         supabase.from('profiles').select('*', { count: 'exact', head: true }),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('is_premium', true),
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).or('is_premium.eq.true,free_premium_grant.eq.true,is_founder_override.eq.true'),
         supabase.from('message_reports').select('*', { count: 'exact', head: true }).eq('status', 'open'),
         supabase.from('message_reports').select('*', { count: 'exact', head: true }),
         supabase.from('community_messages').select('*', { count: 'exact', head: true }),
@@ -186,7 +187,7 @@ function AdminPage() {
     if (ids.length > 0) {
       const { data: profileRows, error: profileError } = await supabase
         .from('profiles')
-        .select('id,username,display_name,avatar_url,is_premium,is_founder_override')
+        .select('id,username,display_name,avatar_url,is_premium,is_founder_override,free_premium_grant')
         .in('id', ids)
 
       if (profileError) {
@@ -317,10 +318,10 @@ function AdminPage() {
     const { data, error } = await supabase
       .from('profiles')
       .update({
-        is_premium: true,
+        free_premium_grant: true,
       })
       .eq('id', userId)
-      .select('id,username,display_name,avatar_url,is_premium,is_founder_override')
+      .select('id,username,display_name,avatar_url,is_premium,is_founder_override,free_premium_grant')
       .maybeSingle()
 
     if (error) {
@@ -328,8 +329,9 @@ function AdminPage() {
       setMsg(`Failed to grant NEESH.+: ${error.message}`)
     } else {
       updateProfileInState(userId, {
-        is_premium: data?.is_premium ?? true,
+        is_premium: data?.is_premium ?? profiles[userId]?.is_premium ?? false,
         is_founder_override: data?.is_founder_override ?? profiles[userId]?.is_founder_override ?? false,
+        free_premium_grant: data?.free_premium_grant ?? true,
       })
 
       await supabase.from('notifications').insert({
@@ -337,11 +339,11 @@ function AdminPage() {
         actor_id: user?.id ?? null,
         type: 'premium',
         title: 'NEESH.+ Granted',
-        body: 'Your account now has NEESH.+ access.',
+        body: 'You were granted free NEESH.+ access by an admin.',
         link: '/premium',
       })
 
-      setMsg('NEESH.+ granted and saved.')
+      setMsg('Free NEESH.+ granted and saved.')
       await loadStats()
     }
 
@@ -358,7 +360,7 @@ function AdminPage() {
       return
     }
 
-    if (!confirm('Revoke NEESH.+ from this user?')) return
+    if (!confirm('Revoke free admin-granted NEESH.+ from this user? This will not cancel paid Stripe subscriptions.')) return
 
     setActionLoading(userId)
     setMsg('')
@@ -366,11 +368,10 @@ function AdminPage() {
     const { data, error } = await supabase
       .from('profiles')
       .update({
-        is_premium: false,
-        is_founder_override: false,
+        free_premium_grant: false,
       })
       .eq('id', userId)
-      .select('id,username,display_name,avatar_url,is_premium,is_founder_override')
+      .select('id,username,display_name,avatar_url,is_premium,is_founder_override,free_premium_grant')
       .maybeSingle()
 
     if (error) {
@@ -378,8 +379,9 @@ function AdminPage() {
       setMsg(`Failed to revoke NEESH.+: ${error.message}`)
     } else {
       updateProfileInState(userId, {
-        is_premium: data?.is_premium ?? false,
-        is_founder_override: data?.is_founder_override ?? false,
+        is_premium: data?.is_premium ?? profiles[userId]?.is_premium ?? false,
+        is_founder_override: data?.is_founder_override ?? profiles[userId]?.is_founder_override ?? false,
+        free_premium_grant: data?.free_premium_grant ?? false,
       })
 
       await supabase.from('notifications').insert({
@@ -387,11 +389,11 @@ function AdminPage() {
         actor_id: user?.id ?? null,
         type: 'premium',
         title: 'NEESH.+ Revoked',
-        body: 'Your NEESH.+ access was removed.',
+        body: 'Your free admin-granted NEESH.+ access was removed.',
         link: '/premium',
       })
 
-      setMsg('NEESH.+ revoked and saved.')
+      setMsg('Free NEESH.+ revoked and saved.')
       await loadStats()
     }
 
@@ -653,7 +655,7 @@ function AdminPage() {
                       </p>
                       <div className="flex items-center gap-2">
                         <p className="text-sm text-white">{reportedName}</p>
-                        {reported?.is_premium && (
+                        {(reported?.is_premium || reported?.free_premium_grant || reported?.is_founder_override) && (
                           <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400 border border-yellow-500/30">
                             <Crown size={10} />
                             NEESH.+
