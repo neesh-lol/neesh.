@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useState, useRef } from 'react'
-import { Save, Flame, Zap, Trophy, AlertCircle, Camera, X, Eye, Users, UserPlus, Crown, Image, Palette, ShoppingBag } from 'lucide-react'
+import { Save, Flame, Zap, Trophy, AlertCircle, Camera, X, Eye, Users, UserPlus, Crown, Image, Palette, ShoppingBag, Edit3 } from 'lucide-react'
 import { VerifiedBadge, FOUNDER_USERNAME } from '@/components/VerifiedBadge'
 
 export const Route = createFileRoute('/profile')({
@@ -404,6 +404,7 @@ function ProfilePage() {
   const [loadingBadges, setLoadingBadges] = useState(false)
   const [ownedThemes, setOwnedThemes] = useState<string[]>([])
   const [loadingThemes, setLoadingThemes] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bannerInputRef = useRef<HTMLInputElement>(null)
@@ -781,6 +782,7 @@ function ProfilePage() {
     }))
 
     setSaved(true)
+    setEditing(false)
     setTimeout(() => setSaved(false), 2000)
     setSaving(false)
   }
@@ -1001,46 +1003,42 @@ function ProfilePage() {
           </div>
         )}
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+        <div className="bg-black border border-emerald-500/20 rounded-2xl p-4 shadow-[0_0_28px_rgba(16,185,129,0.08)]">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider">Profile Level</p>
+              <p className="text-[10px] text-emerald-400 uppercase tracking-[0.22em]">Profile Level</p>
               <p className="text-2xl font-black text-white mt-0.5">
                 Level {levelInfo.level}
               </p>
             </div>
 
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500/20 to-cyan-500/10 border border-purple-500/30 flex items-center justify-center">
-              <span className="text-sm font-black text-white">
-                LVL {levelInfo.level}
+            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+              <span className="text-sm font-black text-emerald-300">
+                {levelInfo.level}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center justify-between text-xs mb-2">
-            <span className="text-zinc-400">
-              {levelInfo.isMax
-                ? 'Max level reached'
-                : `${levelInfo.xpIntoLevel.toLocaleString()} / ${levelInfo.xpForNextLevel.toLocaleString()} XP`}
-            </span>
-
-            <span className="text-zinc-500">
-              {levelInfo.isMax
-                ? 'MAX'
-                : `${levelInfo.xpToNextLevel.toLocaleString()} XP to Level ${levelInfo.level + 1}`}
-            </span>
-          </div>
-
-          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="relative h-7 bg-zinc-950 border border-zinc-800 rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-purple-500 to-cyan-400 rounded-full transition-all"
+              className="absolute left-0 top-0 h-full bg-gradient-to-r from-emerald-700 via-emerald-500 to-lime-400 rounded-full transition-all"
               style={{ width: `${levelInfo.percent}%` }}
             />
+            <div className="absolute inset-0 flex items-center justify-center px-3">
+              <span className="text-[11px] font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] tabular-nums whitespace-nowrap">
+                {levelInfo.isMax
+                  ? `${totalXp.toLocaleString()} XP · MAX LEVEL`
+                  : `${levelInfo.xpIntoLevel.toLocaleString()} / ${levelInfo.xpForNextLevel.toLocaleString()} XP`}
+              </span>
+            </div>
           </div>
 
-          <p className="text-[11px] text-zinc-600 mt-2">
-            Level 100 is the max level at 100,000 XP.
-          </p>
+          <div className="flex items-center justify-between mt-2 text-[11px]">
+            <span className="text-zinc-500">Total XP: {totalXp.toLocaleString()}</span>
+            <span className="text-emerald-400">
+              {levelInfo.isMax ? 'MAX' : `${levelInfo.xpToNextLevel.toLocaleString()} XP to Level ${levelInfo.level + 1}`}
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-3">
@@ -1130,6 +1128,8 @@ function ProfilePage() {
           </div>
         )}
 
+        {editing && (
+          <>
         <div className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">Display name</label>
@@ -1198,6 +1198,11 @@ function ProfilePage() {
           </div>
         </div>
 
+          </>
+        )}
+
+        {editing && (
+          <>
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-1">
             <Trophy size={14} className="text-yellow-400" />
@@ -1291,6 +1296,11 @@ function ProfilePage() {
           </div>
         </div>
 
+          </>
+        )}
+
+        {editing && (
+          <>
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-1">
             <ShoppingBag size={14} className="text-purple-400" />
@@ -1362,7 +1372,10 @@ function ProfilePage() {
           </div>
         </div>
 
-        {isPremium && (
+          </>
+        )}
+
+        {editing && isPremium && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 mb-1">
               <Crown size={14} className="text-yellow-400" />
@@ -1615,6 +1628,8 @@ function ProfilePage() {
           </div>
         )}
 
+        {editing && (
+          <>
         <div>
           <label className="block text-xs font-medium text-zinc-400 mb-2">Interests</label>
           <div className="flex flex-wrap gap-2">
@@ -1654,7 +1669,10 @@ function ProfilePage() {
           </button>
         </div>
 
-        {!isPremium && (
+          </>
+        )}
+
+        {editing && !isPremium && (
           <button
             onClick={() => navigate({ to: '/premium' })}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-zinc-800 to-zinc-900 border border-zinc-700 rounded-xl text-sm text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
@@ -1670,14 +1688,20 @@ function ProfilePage() {
           </p>
         )}
 
-        <button
-          onClick={save}
-          disabled={saving}
-          className="flex items-center gap-2 px-4 py-2.5 bg-white text-zinc-950 font-medium rounded-lg text-sm hover:bg-zinc-200 transition-colors disabled:opacity-50"
-        >
-          <Save size={15} />
-          {saving ? 'Saving…' : saved ? 'Saved!' : 'Save changes'}
-        </button>
+        {saved && !editing && (
+          <p className="text-xs text-emerald-400">Profile saved.</p>
+        )}
+
+        {editing && (
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white text-zinc-950 font-medium rounded-lg text-sm hover:bg-zinc-200 transition-colors disabled:opacity-50"
+          >
+            <Save size={15} />
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        )}
       </div>
     </div>
   )
