@@ -652,23 +652,25 @@ function ProfilePage() {
 
     setProfile((p) => ({
       ...p,
-      username: data.username,
-      lastUsernameChange: data.last_username_change,
-      displayName: data.display_name ?? p.displayName,
-      bio: data.bio ?? p.bio,
-      avatarUrl: data.avatar_url ?? p.avatarUrl,
-      bannerUrl: data.banner_url ?? p.bannerUrl,
-      profileBannerEnabled: data.banner_enabled ?? p.profileBannerEnabled,
-      profileTheme: data.profile_theme ?? p.profileTheme,
-      profileEffect: data.profile_effect ?? p.profileEffect,
-      profileBackground: data.profile_background ?? p.profileBackground,
-      nameEffect: data.name_effect ?? p.nameEffect,
-      profileColorPrimary: data.profile_color_primary ?? p.profileColorPrimary,
-      profileColorSecondary: data.profile_color_secondary ?? p.profileColorSecondary,
-      equippedBadges: Array.isArray(data.equipped_badges) ? data.equipped_badges.slice(0, 3) : p.equippedBadges,
-      equippedFlair: data.equipped_flair ?? p.equippedFlair,
-      interests: data.interests ?? p.interests,
-      weeklyMatchOptIn: data.weekly_match_opt_in ?? p.weeklyMatchOptIn,
+      username: data?.username ?? usernameInput || null,
+      lastUsernameChange: data?.last_username_change ?? updates.last_username_change,
+      displayName: data?.display_name ?? updates.display_name ?? p.displayName,
+      bio: data?.bio ?? updates.bio ?? p.bio,
+      avatarUrl: data?.avatar_url ?? updates.avatar_url ?? p.avatarUrl,
+      bannerUrl: data?.banner_url ?? updates.banner_url ?? p.bannerUrl,
+      profileBannerEnabled: data?.banner_enabled ?? updates.banner_enabled ?? p.profileBannerEnabled,
+      profileTheme: data?.profile_theme ?? updates.profile_theme ?? p.profileTheme,
+      profileEffect: data?.profile_effect ?? updates.profile_effect ?? p.profileEffect,
+      profileBackground: data?.profile_background ?? updates.profile_background ?? p.profileBackground,
+      nameEffect: data?.name_effect ?? updates.name_effect ?? p.nameEffect,
+      profileColorPrimary: data?.profile_color_primary ?? updates.profile_color_primary ?? p.profileColorPrimary,
+      profileColorSecondary: data?.profile_color_secondary ?? updates.profile_color_secondary ?? p.profileColorSecondary,
+      equippedBadges: Array.isArray(data?.equipped_badges)
+        ? data.equipped_badges.slice(0, 3)
+        : updates.equipped_badges ?? p.equippedBadges,
+      equippedFlair: data?.equipped_flair ?? updates.equipped_flair ?? p.equippedFlair,
+      interests: data?.interests ?? updates.interests ?? p.interests,
+      weeklyMatchOptIn: data?.weekly_match_opt_in ?? updates.weekly_match_opt_in ?? p.weeklyMatchOptIn,
     }))
 
     setSaved(true)
