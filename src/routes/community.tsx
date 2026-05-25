@@ -347,44 +347,63 @@ function CommunityPage() {
   }
 
   const awardBadge = async (badgeId: string) => {
-  if (!user) return
+    if (!user) return
 
-  const { data: existing } = await supabase
-    .from('user_badges')
-    .select('badge_id')
-    .eq('user_id', user.id)
-    .eq('badge_id', badgeId)
-    .maybeSingle()
+    const { data: existing } = await supabase
+      .from('user_badges')
+      .select('badge_id')
+      .eq('user_id', user.id)
+      .eq('badge_id', badgeId)
+      .maybeSingle()
 
-  if (existing) return
+    if (existing) return
 
-  const { data: badge } = await supabase
-    .from('badges')
-    .select('name, description, icon')
-    .eq('id', badgeId)
-    .maybeSingle()
+    const { data: badge } = await supabase
+      .from('badges')
+      .select('name, icon')
+      .eq('id', badgeId)
+      .maybeSingle()
 
-  const { error } = await supabase
-    .from('user_badges')
-    .insert({
+    const { error } = await supabase
+      .from('user_badges')
+      .insert({
+        user_id: user.id,
+        badge_id: badgeId,
+      })
+
+    if (error) {
+      console.error(`Badge award failed for ${badgeId}:`, error)
+      return
+    }
+
+    await supabase.from('notifications').insert({
       user_id: user.id,
-      badge_id: badgeId,
+      actor_id: user.id,
+      type: 'badge_unlocked',
+      title: 'Badge unlocked',
+      body: `${badge?.icon ?? '🏅'} ${badge?.name ?? 'New badge'} unlocked!`,
+      link: '/profile',
     })
-
-  if (error) {
-    console.error(`Badge award failed for ${badgeId}:`, error)
-    return
   }
 
-  await supabase.from('notifications').insert({
-    user_id: user.id,
-    actor_id: user.id,
-    type: 'badge_unlocked',
-    title: 'Badge unlocked',
-    body: `${badge?.icon ?? '🏅'} ${badge?.name ?? 'New badge'} unlocked!`,
-    link: '/profile',
-  })
-}
+  const awardMessageBadges = async (messageCount: number) => {
+    if (messageCount >= 1) {
+      await awardBadge('first_message')
+    }
+
+    if (messageCount >= 100) {
+      await awardBadge('hundred_messages')
+    }
+
+    if (messageCount >= 1000) {
+      await awardBadge('thousand_messages')
+    }
+
+    if (messageCount >= 10000) {
+      await awardBadge('ten_thousand_messages')
+    }
+  }
+
   const awardXp = async () => {
     if (!user) return
 
@@ -392,15 +411,21 @@ function CommunityPage() {
     const currentMessages = myProfile?.message_count ?? 0
     const newMessageCount = currentMessages + 1
 
+    const updates = {
+      id: user.id,
+      display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
+      username: myProfile?.username ?? null,
+      avatar_url: myProfile?.avatar_url ?? '',
+      total_xp: currentXp + 10,
+      message_count: newMessageCount,
+      updated_at: new Date().toISOString(),
+    }
+
     const { data, error } = await supabase
       .from('profiles')
-      .update({
-        total_xp: currentXp + 10,
-        message_count: newMessageCount,
-      })
-      .eq('id', user.id)
+      .upsert(updates, { onConflict: 'id' })
       .select()
-      .single()
+      .maybeSingle()
 
     if (error) {
       console.error('XP update error:', error)
@@ -411,7 +436,14 @@ function CommunityPage() {
 
     await awardMessageBadges(newMessageCount)
 
-    if (data) setMyProfile(data)
+    if (data) {
+      setMyProfile(data)
+    } else {
+      setMyProfile((prev: any) => ({
+        ...(prev ?? {}),
+        ...updates,
+      }))
+    }
   }
 
   const send = async () => {
