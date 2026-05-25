@@ -344,7 +344,9 @@ function AdminPage() {
     }
 
     setActionLoading('')
-  }  const revokePremium = async (userId: string | null) => {
+  }
+
+  const revokePremium = async (userId: string | null) => {
     if (!userId) return
 
     const target = profiles[userId]
