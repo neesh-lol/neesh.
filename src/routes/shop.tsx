@@ -144,7 +144,14 @@ function ShopPage() {
       return
     }
 
-    window.location.href = item.stripe_url
+    const url = new URL(item.stripe_url)
+    url.searchParams.set('client_reference_id', `${user.id}:${item.id}`)
+
+    if (user.email) {
+      url.searchParams.set('prefilled_email', user.email)
+    }
+
+    window.location.href = url.toString()
   }
 
   if (!ready || !user) {
