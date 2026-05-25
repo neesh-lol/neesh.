@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useState, useRef } from 'react'
-import { Save, Flame, Zap, Trophy, AlertCircle, Camera, X, Eye, Users, UserPlus, Crown, Image, Palette } from 'lucide-react'
+import { Save, Flame, Zap, Trophy, AlertCircle, Camera, X, Eye, Users, UserPlus, Crown, Image, Palette, ShoppingBag } from 'lucide-react'
 import { VerifiedBadge, FOUNDER_USERNAME } from '@/components/VerifiedBadge'
 
 export const Route = createFileRoute('/profile')({
@@ -56,6 +56,48 @@ const NAME_EFFECTS = [
   { value: 'ice', label: 'Ice' },
 ]
 
+const THEME_PACKS = [
+  {
+    id: 'midnight_pack',
+    name: 'Midnight Theme Pack',
+    description: 'Dark glass profile theme with clean white glow.',
+    preview: 'linear-gradient(135deg,#09090b,#27272a,#52525b)',
+    values: {
+      profileBackground: 'midnight',
+      profileEffect: 'glass',
+      nameEffect: 'none',
+      primary: '#6366f1',
+      secondary: '#0f172a',
+    },
+  },
+  {
+    id: 'cyber_pack',
+    name: 'Cyber Theme Pack',
+    description: 'Neon blue hacker-style profile effects.',
+    preview: 'linear-gradient(135deg,#020617,#06b6d4,#6366f1)',
+    values: {
+      profileBackground: 'ocean',
+      profileEffect: 'cyber',
+      nameEffect: 'neon',
+      primary: '#06b6d4',
+      secondary: '#6366f1',
+    },
+  },
+  {
+    id: 'aurora_pack',
+    name: 'Aurora Theme Pack',
+    description: 'Purple and cyan premium gradient profile style.',
+    preview: 'linear-gradient(135deg,#7c3aed,#06b6d4,#ec4899)',
+    values: {
+      profileBackground: 'aurora',
+      profileEffect: 'aurora',
+      nameEffect: 'gradient',
+      primary: '#7c3aed',
+      secondary: '#06b6d4',
+    },
+  },
+]
+
 interface Profile {
   id?: string
   netlifyId?: string
@@ -83,6 +125,7 @@ interface Profile {
   isPremium?: boolean
   isFounderOverride?: boolean
   profileViews?: number
+  activeTheme?: string | null
 }
 
 interface Badge {
@@ -342,6 +385,7 @@ function ProfilePage() {
     equippedBadges: [],
     equippedFlair: '',
     interests: [],
+    activeTheme: null,
   })
 
   const [usernameInput, setUsernameInput] = useState('')
@@ -358,6 +402,8 @@ function ProfilePage() {
   const [streakInfo, setStreakInfo] = useState<{ freezesRemaining: number } | null>(null)
   const [earnedBadges, setEarnedBadges] = useState<Badge[]>([])
   const [loadingBadges, setLoadingBadges] = useState(false)
+  const [ownedThemes, setOwnedThemes] = useState<string[]>([])
+  const [loadingThemes, setLoadingThemes] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bannerInputRef = useRef<HTMLInputElement>(null)
@@ -412,6 +458,7 @@ function ProfilePage() {
           isPremium: data.is_premium ?? false,
           isFounderOverride: data.is_founder_override ?? false,
           profileViews: data.profile_views ?? 0,
+          activeTheme: data.active_theme ?? null,
         }
 
         setProfile(loadedProfile)
@@ -464,6 +511,35 @@ function ProfilePage() {
     }
 
     loadBadges()
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+
+    async function loadOwnedThemes() {
+      setLoadingThemes(true)
+
+      const { data, error } = await supabase
+        .from('user_purchases')
+        .select('item_id')
+        .eq('user_id', user.id)
+
+      if (error) {
+        console.error('Owned themes load error:', error)
+        setOwnedThemes([])
+        setLoadingThemes(false)
+        return
+      }
+
+      const owned = (data ?? [])
+        .map((row: any) => row.item_id)
+        .filter((id: string) => id && id.endsWith('_pack'))
+
+      setOwnedThemes(owned)
+      setLoadingThemes(false)
+    }
+
+    loadOwnedThemes()
   }, [user])
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -574,6 +650,37 @@ function ProfilePage() {
     })
   }
 
+  const equipThemePack = (themeId: string | null) => {
+    if (!themeId) {
+      setProfile((p) => ({
+        ...p,
+        activeTheme: null,
+      }))
+      return
+    }
+
+    if (!ownedThemes.includes(themeId)) {
+      setError('You do not own this theme pack yet.')
+      return
+    }
+
+    const theme = THEME_PACKS.find((pack) => pack.id === themeId)
+
+    if (!theme) return
+
+    setError('')
+
+    setProfile((p) => ({
+      ...p,
+      activeTheme: theme.id,
+      profileBackground: theme.values.profileBackground,
+      profileEffect: theme.values.profileEffect,
+      nameEffect: theme.values.nameEffect,
+      profileColorPrimary: theme.values.primary,
+      profileColorSecondary: theme.values.secondary,
+    }))
+  }
+
   const equippedBadgeObjects = profile.equippedBadges
     .map((badgeId) => earnedBadges.find((badge) => badge.id === badgeId))
     .filter(Boolean) as Badge[]
@@ -628,6 +735,7 @@ function ProfilePage() {
       longest_streak: profile.longestStreak ?? 0,
       message_count: profile.messageCount ?? 0,
       profile_views: profile.profileViews ?? 0,
+      active_theme: profile.activeTheme ?? null,
       last_username_change:
         usernameChanged && canChangeUsername()
           ? new Date().toISOString()
@@ -669,6 +777,7 @@ function ProfilePage() {
       equippedFlair: data?.equipped_flair ?? updates.equipped_flair ?? p.equippedFlair,
       interests: data?.interests ?? updates.interests ?? p.interests,
       weeklyMatchOptIn: data?.weekly_match_opt_in ?? updates.weekly_match_opt_in ?? p.weeklyMatchOptIn,
+      activeTheme: data?.active_theme ?? updates.active_theme ?? p.activeTheme,
     }))
 
     setSaved(true)
@@ -1179,6 +1288,77 @@ function ProfilePage() {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-1">
+            <ShoppingBag size={14} className="text-purple-400" />
+            <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Owned Theme Packs</span>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-white">Shop Themes</p>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  Equip purchased theme packs from the shop.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigate({ to: '/shop' })}
+                className="px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-xs text-zinc-300 hover:text-white hover:border-zinc-600 transition-colors"
+              >
+                Open Shop
+              </button>
+            </div>
+
+            {loadingThemes ? (
+              <p className="text-xs text-zinc-500">Loading owned themes…</p>
+            ) : ownedThemes.length === 0 ? (
+              <p className="text-xs text-zinc-500">
+                You do not own any theme packs yet. Buy Midnight, Cyber, or Aurora in the Shop.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {THEME_PACKS.filter((theme) => ownedThemes.includes(theme.id)).map((theme) => {
+                  const equipped = profile.activeTheme === theme.id
+
+                  return (
+                    <button
+                      key={theme.id}
+                      type="button"
+                      onClick={() => equipThemePack(theme.id)}
+                      className={`rounded-xl border overflow-hidden text-left transition-colors ${
+                        equipped
+                          ? 'border-white bg-white text-zinc-950'
+                          : 'border-zinc-700 bg-zinc-950 text-zinc-300 hover:text-white hover:border-zinc-500'
+                      }`}
+                    >
+                      <div className="h-16" style={{ background: theme.preview }} />
+                      <div className="p-3">
+                        <p className="text-xs font-semibold">{theme.name}</p>
+                        <p className={`text-[10px] mt-1 ${equipped ? 'text-zinc-600' : 'text-zinc-500'}`}>
+                          {equipped ? 'Equipped' : theme.description}
+                        </p>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {profile.activeTheme && (
+              <button
+                type="button"
+                onClick={() => equipThemePack(null)}
+                className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
+              >
+                Unequip active theme
+              </button>
+            )}
           </div>
         </div>
 
