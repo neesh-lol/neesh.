@@ -848,6 +848,7 @@ function SidebarContent({
       <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-1">
         <NavItem to="/home" icon={Home} label="Home" onClick={onNavClick} />
         <NavItem to="/find-people" icon={Sparkles} label="Find People" onClick={onNavClick} />
+        <NavItem to="/weekly-match" icon={Users} label="Weekly Match" onClick={onNavClick} />
         <NavItem to="/chat" icon={Hash} label="Interest Chat" onClick={onNavClick} />
         <NavItem to="/community" icon={MessageSquare} label="Community" onClick={onNavClick} />
         <NavItem to="/messages" icon={Mail} label="Messages" onClick={onNavClick} badge={unreadMessages} />
