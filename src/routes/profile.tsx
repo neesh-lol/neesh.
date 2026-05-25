@@ -901,6 +901,26 @@ function ProfilePage() {
       />
 
       <div className="max-w-lg mx-auto w-full px-5 py-8 space-y-6">
+        <div className="flex items-center justify-end gap-2">
+          {editing && (
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="px-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setEditing((value) => !value)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white text-zinc-950 font-medium rounded-lg text-sm hover:bg-zinc-200 transition-colors"
+          >
+            <Edit3 size={15} />
+            {editing ? 'Editing Profile' : 'Edit Profile'}
+          </button>
+        </div>
         {hasGradient ? (
           <div className="rounded-2xl border p-4 flex items-center gap-5 overflow-hidden" style={premiumCardStyle}>
               <div className="relative">
@@ -1003,17 +1023,17 @@ function ProfilePage() {
           </div>
         )}
 
-        <div className="bg-black border border-emerald-500/20 rounded-2xl p-4 shadow-[0_0_28px_rgba(16,185,129,0.08)]">
+        <div className="bg-black border border-white/10 rounded-2xl p-4 shadow-[0_0_28px_rgba(255,255,255,0.05)]">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div>
-              <p className="text-[10px] text-emerald-400 uppercase tracking-[0.22em]">Profile Level</p>
+              <p className="text-[10px] text-zinc-400 uppercase tracking-[0.22em]">Profile Level</p>
               <p className="text-2xl font-black text-white mt-0.5">
                 Level {levelInfo.level}
               </p>
             </div>
 
-            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-              <span className="text-sm font-black text-emerald-300">
+            <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/15 flex items-center justify-center">
+              <span className="text-sm font-black text-white">
                 {levelInfo.level}
               </span>
             </div>
@@ -1021,7 +1041,7 @@ function ProfilePage() {
 
           <div className="relative h-7 bg-zinc-950 border border-zinc-800 rounded-full overflow-hidden">
             <div
-              className="absolute left-0 top-0 h-full bg-gradient-to-r from-emerald-700 via-emerald-500 to-lime-400 rounded-full transition-all"
+              className="absolute left-0 top-0 h-full bg-gradient-to-r from-zinc-700 via-white to-white rounded-full transition-all"
               style={{ width: `${levelInfo.percent}%` }}
             />
             <div className="absolute inset-0 flex items-center justify-center px-3">
@@ -1035,7 +1055,7 @@ function ProfilePage() {
 
           <div className="flex items-center justify-between mt-2 text-[11px]">
             <span className="text-zinc-500">Total XP: {totalXp.toLocaleString()}</span>
-            <span className="text-emerald-400">
+            <span className="text-zinc-300">
               {levelInfo.isMax ? 'MAX' : `${levelInfo.xpToNextLevel.toLocaleString()} XP to Level ${levelInfo.level + 1}`}
             </span>
           </div>
@@ -1053,12 +1073,12 @@ function ProfilePage() {
             <p className="text-xs text-zinc-500">
               Streak
               {isPremium && streakInfo && (
-                <span className="text-emerald-400 ml-1">({streakInfo.freezesRemaining} freezes)</span>
+                <span className="text-zinc-300 ml-1">({streakInfo.freezesRemaining} freezes)</span>
               )}
             </p>
           </div>
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-center">
-            <Trophy size={14} className="text-emerald-400 mx-auto mb-1" />
+            <Trophy size={14} className="text-zinc-300 mx-auto mb-1" />
             <p className="text-sm font-bold text-white">{profile.longestStreak ?? 0}d</p>
             <p className="text-xs text-zinc-500">Best</p>
           </div>
@@ -1175,7 +1195,7 @@ function ProfilePage() {
           <div>
             <label className="block text-xs font-medium text-zinc-400 mb-1.5">
               Avatar
-              {isPremium && <span className="ml-2 text-emerald-400 font-normal">GIF supported</span>}
+              {isPremium && <span className="ml-2 text-zinc-300 font-normal">GIF supported</span>}
             </label>
             <div className="flex items-center gap-3">
               <button
@@ -1689,7 +1709,7 @@ function ProfilePage() {
         )}
 
         {saved && !editing && (
-          <p className="text-xs text-emerald-400">Profile saved.</p>
+          <p className="text-xs text-zinc-300">Profile saved.</p>
         )}
 
         {editing && (
