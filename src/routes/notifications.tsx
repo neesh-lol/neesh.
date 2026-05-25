@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useIdentity } from '@/lib/identity-context'
 import { supabase } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
-import { Bell, Mail, UserPlus, Users, CheckCircle, Trash2, CheckCheck } from 'lucide-react'
+import { Bell, Mail, UserPlus, Users, Trash2, CheckCheck, Trophy, Sparkles, Heart, Zap, Crown, Music2, ShieldAlert, MessageSquare, Award } from 'lucide-react'
 
 export const Route = createFileRoute('/notifications')({
   component: NotificationsPage,
@@ -24,7 +24,32 @@ function iconForType(type: string) {
   if (type === 'direct_message') return Mail
   if (type === 'friend_request') return UserPlus
   if (type === 'friend_accepted') return Users
+  if (type === 'badge_unlocked') return Trophy
+  if (type === 'level_up') return Zap
+  if (type === 'weekly_match_ready') return Sparkles
+  if (type === 'follow') return Heart
+  if (type === 'premium') return Crown
+  if (type === 'songwars') return Music2
+  if (type === 'report') return ShieldAlert
+  if (type === 'mention') return MessageSquare
+  if (type === 'achievement') return Award
   return Bell
+}
+
+function colorForType(type: string) {
+  if (type === 'direct_message') return 'bg-blue-500/10 text-blue-400'
+  if (type === 'friend_request') return 'bg-purple-500/10 text-purple-400'
+  if (type === 'friend_accepted') return 'bg-emerald-500/10 text-emerald-400'
+  if (type === 'badge_unlocked') return 'bg-yellow-500/10 text-yellow-400'
+  if (type === 'level_up') return 'bg-cyan-500/10 text-cyan-400'
+  if (type === 'weekly_match_ready') return 'bg-fuchsia-500/10 text-fuchsia-400'
+  if (type === 'follow') return 'bg-pink-500/10 text-pink-400'
+  if (type === 'premium') return 'bg-amber-500/10 text-amber-400'
+  if (type === 'songwars') return 'bg-orange-500/10 text-orange-400'
+  if (type === 'report') return 'bg-red-500/10 text-red-400'
+  if (type === 'mention') return 'bg-indigo-500/10 text-indigo-400'
+  if (type === 'achievement') return 'bg-lime-500/10 text-lime-400'
+  return 'bg-zinc-800 text-zinc-400'
 }
 
 function formatTime(dateString: string) {
@@ -45,6 +70,22 @@ function formatTime(dateString: string) {
   })
 }
 
+function actionLabelForType(type: string, link: string | null) {
+  if (!link) return null
+  if (type === 'direct_message') return 'Open messages'
+  if (type === 'friend_request') return 'View request'
+  if (type === 'friend_accepted') return 'View friends'
+  if (type === 'badge_unlocked') return 'View profile'
+  if (type === 'level_up') return 'View profile'
+  if (type === 'weekly_match_ready') return 'Open match'
+  if (type === 'follow') return 'View profile'
+  if (type === 'premium') return 'View NEESH.+'
+  if (type === 'songwars') return 'Open Song Wars'
+  if (type === 'mention') return 'Open chat'
+  return 'Open'
+}
+
+
 function NotificationsPage() {
   const { user, ready } = useIdentity()
   const navigate = useNavigate()
@@ -52,6 +93,7 @@ function NotificationsPage() {
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (ready && !user) {
@@ -63,6 +105,7 @@ function NotificationsPage() {
     if (!user) return
 
     setLoading(true)
+    setError('')
 
     const { data, error } = await supabase
       .from('notifications')
@@ -73,6 +116,7 @@ function NotificationsPage() {
 
     if (error) {
       console.error('Notifications load error:', error)
+      setError(error.message || 'Could not load notifications')
       setNotifications([])
       setLoading(false)
       return
@@ -112,11 +156,17 @@ function NotificationsPage() {
     if (!user) return
 
     if (!notification.read_at) {
-      await supabase
+      const { error } = await supabase
         .from('notifications')
         .update({ read_at: new Date().toISOString() })
         .eq('id', notification.id)
         .eq('user_id', user.id)
+
+      if (error) {
+        console.error('Mark notification read error:', error)
+        setError(error.message || 'Could not mark notification read')
+        return
+      }
     }
 
     if (notification.link) {
@@ -139,6 +189,7 @@ function NotificationsPage() {
 
     if (error) {
       console.error('Mark all notifications read error:', error)
+      setError(error.message || 'Could not mark notifications read')
     }
 
     await loadNotifications()
@@ -175,6 +226,9 @@ function NotificationsPage() {
 
     if (error) {
       console.error('Clear notifications error:', error)
+      setError(error.message || 'Could not clear notifications')
+      setActionLoading(false)
+      return
     }
 
     setNotifications([])
@@ -229,6 +283,12 @@ function NotificationsPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="mx-5 mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          {error}
+        </div>
+      )}
+
       <div className="flex-1">
         {loading ? (
           <div className="flex items-center justify-center mt-20">
@@ -241,7 +301,7 @@ function NotificationsPage() {
             </div>
             <p className="text-sm font-medium text-white mb-1">No notifications yet</p>
             <p className="text-xs text-zinc-500">
-              Friend requests and messages will show up here.
+              Messages, badges, levels, follows, friend requests, and weekly matches will show up here.
             </p>
           </div>
         ) : (
@@ -262,15 +322,7 @@ function NotificationsPage() {
                     className="flex items-start gap-3 flex-1 min-w-0 text-left"
                   >
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                        notification.type === 'direct_message'
-                          ? 'bg-blue-500/10 text-blue-400'
-                          : notification.type === 'friend_request'
-                            ? 'bg-purple-500/10 text-purple-400'
-                            : notification.type === 'friend_accepted'
-                              ? 'bg-emerald-500/10 text-emerald-400'
-                              : 'bg-zinc-800 text-zinc-400'
-                      }`}
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${colorForType(notification.type)}`}
                     >
                       <Icon size={17} />
                     </div>
@@ -292,9 +344,17 @@ function NotificationsPage() {
                         </p>
                       )}
 
-                      <p className="text-[11px] text-zinc-600 mt-1">
-                        {formatTime(notification.created_at)}
-                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-[11px] text-zinc-600">
+                          {formatTime(notification.created_at)}
+                        </p>
+
+                        {actionLabelForType(notification.type, notification.link) && (
+                          <span className="text-[11px] text-zinc-500">
+                            · {actionLabelForType(notification.type, notification.link)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </button>
 
