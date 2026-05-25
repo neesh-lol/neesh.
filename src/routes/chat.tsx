@@ -279,19 +279,13 @@ function ChatPage() {
     const currentMessages = myProfile?.message_count ?? 0
     const newMessageCount = currentMessages + 1
 
-    const updates = {
-      id: user.id,
-      display_name: myProfile?.display_name ?? user.name ?? user.email ?? 'User',
-      username: myProfile?.username ?? null,
-      avatar_url: myProfile?.avatar_url ?? '',
-      total_xp: currentXp + 10,
-      message_count: newMessageCount,
-      updated_at: new Date().toISOString(),
-    }
-
     const { data, error } = await supabase
       .from('profiles')
-      .upsert(updates, { onConflict: 'id' })
+      .update({
+        total_xp: currentXp + 10,
+        message_count: newMessageCount,
+      })
+      .eq('id', user.id)
       .select()
       .maybeSingle()
 
@@ -309,7 +303,8 @@ function ChatPage() {
     } else {
       setMyProfile((prev: any) => ({
         ...(prev ?? {}),
-        ...updates,
+        total_xp: currentXp + 10,
+        message_count: newMessageCount,
       }))
     }
   }
